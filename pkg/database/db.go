@@ -114,3 +114,29 @@ func (r *Repository) FindClosest(target time.Time, window time.Duration) ([]Loca
 	}
 	return entries, nil
 }
+
+// GetAll returns all location entries in the database
+func (r *Repository) GetAll() ([]LocationEntry, error) {
+	query := `
+	SELECT timestamp, latitude, longitude, altitude, city, state, country, device_model
+	FROM locations
+	ORDER BY timestamp ASC
+	`
+	rows, err := r.db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var entries []LocationEntry
+	for rows.Next() {
+		var e LocationEntry
+		var ts time.Time
+		if err := rows.Scan(&ts, &e.Latitude, &e.Longitude, &e.Altitude, &e.City, &e.State, &e.Country, &e.DeviceModel); err != nil {
+			return nil, err
+		}
+		e.Timestamp = ts
+		entries = append(entries, e)
+	}
+	return entries, nil
+}

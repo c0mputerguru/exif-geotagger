@@ -1,11 +1,13 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
 	"strings"
 
+	"github.com/abpatel/exif-geotagger/pkg/database"
 	"github.com/abpatel/exif-geotagger/pkg/processor"
 )
 
@@ -31,6 +33,32 @@ func main() {
 
 		if err := processor.BuildDB(*inputDir, *outputDB); err != nil {
 			fmt.Printf("Error building database: %v\n", err)
+			os.Exit(1)
+		}
+
+	case "print-db":
+		printDbCmd := flag.NewFlagSet("print-db", flag.ExitOnError)
+		dbPath := printDbCmd.String("db", "db.sqlite", "Path to SQLite database")
+
+		printDbCmd.Parse(os.Args[2:])
+
+		repo, err := database.Connect(*dbPath)
+		if err != nil {
+			fmt.Printf("Error connecting to database: %v\n", err)
+			os.Exit(1)
+		}
+		defer repo.Close()
+
+		entries, err := repo.GetAll()
+		if err != nil {
+			fmt.Printf("Error fetching entries: %v\n", err)
+			os.Exit(1)
+		}
+
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(entries); err != nil {
+			fmt.Printf("Error encoding JSON: %v\n", err)
 			os.Exit(1)
 		}
 
@@ -74,6 +102,7 @@ func printUsage() {
 	fmt.Println()
 	fmt.Println("Commands:")
 	fmt.Println("  build-db      Extract GPS data from reference images and build database")
+	fmt.Println("  print-db      Print database contents as JSON")
 	fmt.Println("  tag-images    Tag raw images with GPS data from database")
 	fmt.Println()
 	fmt.Println("Run 'exif-geotagger <command> -h' for more information on a command.")
