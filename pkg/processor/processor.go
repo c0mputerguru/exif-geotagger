@@ -356,10 +356,7 @@ func TagImages(rawDir string, dbPath string, dryRun bool, priorityDevices []stri
 		ts, err := meta.GetTimestamp()
 		if err != nil {
 			log.Printf("Warning: No valid timestamp for %s\n", path)
-<<<<<<< HEAD
 			skipped++
-=======
->>>>>>> 414279f (fix: correct log.Printf args in TagImages and improve sorting)
 			return nil
 		}
 
