@@ -5,3 +5,4 @@ __pycache__/
 state.json
 .opencode/
 .beads/
+db.sqlite
