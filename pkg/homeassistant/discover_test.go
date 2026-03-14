@@ -20,8 +20,9 @@ func TestDiscoverDeviceTrackers(t *testing.T) {
 			setupServer: func() []StateResponse {
 				return []StateResponse{
 					{
-						EntityID: "device_tracker.iphone",
-						State:    "home",
+						EntityID:    "device_tracker.iphone",
+						State:       "home",
+						LastUpdated: "2024-03-13T15:04:05.000000+00:00",
 						Attributes: map[string]interface{}{
 							"friendly_name": "iPhone 14 Pro",
 							"source_type":   "gps",
@@ -33,8 +34,9 @@ func TestDiscoverDeviceTrackers(t *testing.T) {
 						Attributes: map[string]interface{}{},
 					},
 					{
-						EntityID: "device_tracker.pixel",
-						State:    "not_home",
+						EntityID:    "device_tracker.pixel",
+						State:       "not_home",
+						LastUpdated: "2024-03-13T14:30:00.000000+00:00",
 						Attributes: map[string]interface{}{
 							"friendly_name": "Pixel 8",
 						},
@@ -49,17 +51,28 @@ func TestDiscoverDeviceTrackers(t *testing.T) {
 			expectedCount: 3,
 			checkResults: func(trackers []DeviceTracker) error {
 				names := make(map[string]string)
+				lastSeen := make(map[string]string)
 				for _, t := range trackers {
 					names[t.EntityID] = t.FriendlyName
+					lastSeen[t.EntityID] = t.LastSeen
 				}
 				if names["device_tracker.iphone"] != "iPhone 14 Pro" {
 					return fmt.Errorf("expected iPhone 14 Pro, got %q", names["device_tracker.iphone"])
 				}
+				if lastSeen["device_tracker.iphone"] != "2024-03-13T15:04:05.000000+00:00" {
+					return fmt.Errorf("expected last_seen 2024-03-13T15:04:05.000000+00:00, got %q", lastSeen["device_tracker.iphone"])
+				}
 				if names["device_tracker.pixel"] != "Pixel 8" {
 					return fmt.Errorf("expected Pixel 8, got %q", names["device_tracker.pixel"])
 				}
+				if lastSeen["device_tracker.pixel"] != "2024-03-13T14:30:00.000000+00:00" {
+					return fmt.Errorf("expected last_seen 2024-03-13T14:30:00.000000+00:00, got %q", lastSeen["device_tracker.pixel"])
+				}
 				if names["device_tracker.samsung"] != "" {
 					return fmt.Errorf("expected empty friendly_name for samsung, got %q", names["device_tracker.samsung"])
+				}
+				if lastSeen["device_tracker.samsung"] != "" {
+					return fmt.Errorf("expected empty last_seen for samsung (no LastUpdated), got %q", lastSeen["device_tracker.samsung"])
 				}
 				return nil
 			},
