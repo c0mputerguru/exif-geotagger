@@ -8,6 +8,42 @@ import (
 	"time"
 )
 
+// Retry configuration for transient errors
+var (
+	MaxRetries     = 3
+	InitialBackoff = 100 * time.Millisecond
+	MaxBackoff     = 5 * time.Second
+)
+
+// withRetry executes a function with exponential backoff retry logic.
+// It retries on transient errors (exiftool failures) up to MaxRetries.
+func withRetry(operation func() error) error {
+	var err error
+	backoff := InitialBackoff
+
+	for attempt := 0; attempt < MaxRetries; attempt++ {
+		if attempt > 0 {
+			time.Sleep(backoff)
+			if backoff < MaxBackoff {
+				backoff = backoff * 2
+				if backoff > MaxBackoff {
+					backoff = MaxBackoff
+				}
+			}
+		}
+
+		err = operation()
+		if err == nil {
+			return nil
+		}
+
+		// Only retry on certain error types (transient failures)
+		// For exiftool, we retry on any error as it could be file locking, temp I/O, etc.
+	}
+
+	return fmt.Errorf("exceeded max retries (%d): %w", MaxRetries, err)
+}
+
 type Metadata struct {
 	GPSLatitude            *float64 `json:"GPSLatitude,omitempty"`
 	GPSLongitude           *float64 `json:"GPSLongitude,omitempty"`
@@ -64,26 +100,33 @@ func (m *Metadata) GetTimestamp() (time.Time, error) {
 }
 
 func ReadMetadata(filePath string) (Metadata, error) {
-	// -n: Print numeric values
-	// -json: JSON output
-	// -m: Ignore minor warnings
-	cmd := exec.Command("exiftool", "-json", "-n", "-m", filePath)
-	output, err := cmd.Output()
-	if err != nil {
-		// Output usually contains stderr info
-		return Metadata{}, fmt.Errorf("exiftool failed: %w", err)
-	}
+	// Wrap exiftool call with retry logic for transient errors
+	var result Metadata
+	err := withRetry(func() error {
+		// -n: Print numeric values
+		// -json: JSON output
+		// -m: Ignore minor warnings
+		cmd := exec.Command("exiftool", "-json", "-n", "-m", filePath)
+		output, err := cmd.Output()
+		if err != nil {
+			// Output usually contains stderr info
+			return fmt.Errorf("exiftool failed: %w", err)
+		}
 
-	var metaList []Metadata
-	if err := json.Unmarshal(output, &metaList); err != nil {
-		return Metadata{}, fmt.Errorf("failed to parse exiftool output: %w", err)
-	}
+		var metaList []Metadata
+		if err := json.Unmarshal(output, &metaList); err != nil {
+			return fmt.Errorf("failed to parse exiftool output: %w", err)
+		}
 
-	if len(metaList) == 0 {
-		return Metadata{}, fmt.Errorf("no metadata found for %s", filePath)
-	}
+		if len(metaList) == 0 {
+			return fmt.Errorf("no metadata found for %s", filePath)
+		}
 
-	return metaList[0], nil
+		result = metaList[0]
+		return nil
+	})
+
+	return result, err
 }
 
 func WriteMetadata(filePath string, meta Metadata, dryRun bool) error {
@@ -135,11 +178,15 @@ func WriteMetadata(filePath string, meta Metadata, dryRun bool) error {
 		return nil
 	}
 
-	cmd := exec.Command("exiftool", args...)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("exiftool write failed: %s, %w", string(output), err)
-	}
+	// Wrap exiftool call with retry logic for transient errors
+	err := withRetry(func() error {
+		cmd := exec.Command("exiftool", args...)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("exiftool write failed: %s, %w", string(output), err)
+		}
+		return nil
+	})
 
-	return nil
+	return err
 }

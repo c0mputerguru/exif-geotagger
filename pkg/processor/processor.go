@@ -44,6 +44,7 @@ func BuildDB(inputDir, outputDB, source, haURL, haToken, haDevices, haStart, haE
 
 func buildFromImages(inputDir, outputDB string, repo *database.Repository) error {
 	count := 0
+	skipped := 0
 	err := filepath.WalkDir(inputDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -60,17 +61,21 @@ func buildFromImages(inputDir, outputDB string, repo *database.Repository) error
 
 		meta, err := exiftool.ReadMetadata(path)
 		if err != nil {
-			// Skip files with no/failed metadata
+			log.Printf("Skipping %s: failed to read metadata: %v\n", path, err)
+			skipped++
 			return nil
 		}
 
 		if meta.GPSLatitude == nil || meta.GPSLongitude == nil {
 			// Skip if no GPS
+			skipped++
 			return nil
 		}
 
 		ts, err := meta.GetTimestamp()
 		if err != nil {
+			log.Printf("Skipping %s: no valid timestamp\n", path)
+			skipped++
 			return nil
 		}
 
@@ -92,6 +97,7 @@ func buildFromImages(inputDir, outputDB string, repo *database.Repository) error
 
 		if err := repo.Insert(entry); err != nil {
 			log.Printf("Warning: failed to insert location for %s: %v", path, err)
+			skipped++
 		} else {
 			count++
 		}
@@ -102,7 +108,7 @@ func buildFromImages(inputDir, outputDB string, repo *database.Repository) error
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Successfully built database at %s with %d entries from images.\n", outputDB, count)
+	fmt.Printf("Successfully built database at %s with %d entries (skipped %d).\n", outputDB, count, skipped)
 	return nil
 }
 
@@ -140,7 +146,8 @@ func TagImages(rawDir string, dbPath string, dryRun bool, priorityDevices []stri
 
 		meta, err := exiftool.ReadMetadata(path)
 		if err != nil {
-			log.Printf("Failed to read metadata for %s: %v", path, err)
+			log.Printf("Skipping %s: failed to read metadata: %v\n", path, err)
+			skipped++
 			return nil
 		}
 
@@ -153,7 +160,8 @@ func TagImages(rawDir string, dbPath string, dryRun bool, priorityDevices []stri
 
 		ts, err := meta.GetTimestamp()
 		if err != nil {
-			log.Printf("Warning: No valid timestamp for %s\n", path)
+			log.Printf("Skipping %s: no valid timestamp\n", path)
+			skipped++
 			return nil
 		}
 
