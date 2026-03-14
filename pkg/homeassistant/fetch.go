@@ -146,15 +146,26 @@ func parseLocationFromState(state HAState) (lat, lon float64, alt *float64, ts t
 		}
 	}
 
-	// Parse timestamp: try last_updated_iso first, then last_updated, then state itself
+	// Parse timestamp: use state.LastUpdatedISO, then state.LastUpdated, then fallback to attrs
 	ts = time.Time{}
-	if tsStr, ok := attrs["last_updated_iso"].(string); ok {
-		if parsed, err := time.Parse(time.RFC3339, tsStr); err == nil {
+	if state.LastUpdatedISO != "" {
+		if parsed, err := time.Parse(time.RFC3339, state.LastUpdatedISO); err == nil {
 			ts = parsed
 		}
 	}
-	// If still zero, could try state.LastUpdated if we add that field to HAState,
-	// but for now we return zero time which is acceptable (entry still useful)
+	if ts.IsZero() && state.LastUpdated != "" {
+		if parsed, err := time.Parse(time.RFC3339, state.LastUpdated); err == nil {
+			ts = parsed
+		}
+	}
+	// If still zero, try attrs for backward compatibility (unlikely needed)
+	if ts.IsZero() {
+		if tsStr, ok := attrs["last_updated_iso"].(string); ok {
+			if parsed, err := time.Parse(time.RFC3339, tsStr); err == nil {
+				ts = parsed
+			}
+		}
+	}
 
 	return lat, lon, alt, ts, nil
 }
