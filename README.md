@@ -77,6 +77,177 @@ The tool walks the input directory recursively, processing files with extensions
 exif-geotagger build-db -input ~/Photos/iPhone\ 14\ Pro -output ~/geotag-db.sqlite
 ```
 
+### Building Database from Home Assistant
+
+You can build the location database directly from Home Assistant device tracker entities instead of using local images. This is useful if your mobile devices (phones, tablets) report GPS locations to Home Assistant via their companion apps.
+
+#### Prerequisites
+
+1. **Home Assistant instance** with device tracker entities for your mobile devices.
+2. **Long-lived access token** with permission to read entity states.
+3. Entities must provide latitude and longitude attributes.
+
+#### Creating a Home Assistant Token
+
+1. Log into Home Assistant as the user whose devices you want to track.
+2. Click your user profile (bottom-left corner).
+3. Scroll down to **Long-lived access tokens**.
+4. Click **Create token**.
+5. Give it a descriptive name (e.g., "EXIF Geotagger").
+6. Copy the token immediately (you won't be able to see it again).
+
+**Important:** Keep this token secure; it grants access to your Home Assistant data.
+
+#### Discovering Entity IDs
+
+Device tracker entities in Home Assistant have IDs like `device_tracker.iphone` or `device_tracker.pixel_8`.
+
+To find them:
+
+1. Go to **Settings → Devices & services → Devices**.
+2. Find your mobile devices (iPhone, Android, etc.).
+3. Click on a device to see its entities.
+4. Look for entities of type `device_tracker` or `sensor`.
+5. Note the **Entity ID** (shown in the top-right of the entity details).
+
+Alternatively, use **Developer Tools → States** and filter by `device_tracker` or `source_type: gps`.
+
+**Example entity IDs:**
+```
+device_tracker.iphone_14_pro
+device_tracker.pixel_8
+device_tracker.samsung_s24
+```
+
+#### Command-Line Options for HA Source
+
+When using `-source=ha`, the following flags become available:
+
+- `-ha-url` (required): Home Assistant base URL (e.g., `http://homeassistant.local:8123` or `https://my-ha.example.com`)
+- `-ha-token` (required): Long-lived access token created above
+- `-ha-devices` (optional): Comma-separated list of entity IDs to fetch (e.g., `device_tracker.iphone,device_tracker.pixel`). If omitted, all device_tracker entities with GPS data are used.
+- `-start` / `-end` (optional): Time range for fetching history (e.g., `-start 2024-01-01 -end 2024-01-31`). Format: `YYYY-MM-DD`. Default is last 30 days.
+- `-days` (optional): Number of days of history to fetch (overrides `-start` if both present). Default: 30.
+- `-output` (optional): Path to output SQLite database (default: `db.sqlite`)
+
+#### Example Commands
+
+**Basic usage with explicit device list:**
+```bash
+exif-geotagger build-db -source=ha \
+  -ha-url http://homeassistant.local:8123 \
+  -ha-token "your_long_lived_token_here" \
+  -ha-devices device_tracker.iphone_14_pro,device_tracker.pixel_8 \
+  -output ha-db.sqlite
+```
+
+**Fetch last 7 days of history:**
+```bash
+exif-geotagger build-db -source=ha \
+  -ha-url https://my-ha.example.com \
+  -ha-token "TOKEN" \
+  -days 7 \
+  -output ha-db.sqlite
+```
+
+**Fetch specific date range:**
+```bash
+exif-geotagger build-db -source=ha \
+  -ha-url http://192.168.1.100:8123 \
+  -ha-token "TOKEN" \
+  -start 2024-12-01 -end 2024-12-15 \
+  -output ha-db.sqlite
+```
+
+**Use all device_tracker entities (no -ha-devices):**
+```bash
+exif-geotagger build-db -source=ha \
+  -ha-url http://homeassistant.local:8123 \
+  -ha-token "TOKEN" \
+  -output ha-db.sqlite
+```
+
+#### How It Works
+
+The `-source=ha` mode works as follows:
+
+1. **Authenticates** to your Home Assistant API using the provided token.
+2. **Discovers** device_tracker entities (or uses the list from `-ha-devices`).
+3. **Fetches location history** from the Home Assistant `logbook` or `recorder` database for each entity over the specified time range.
+4. **Extracts** latitude, longitude, and timestamps from the state changes.
+5. **Builds** the SQLite database with `LocationEntry` records, using the entity ID as the device model name.
+6. **Merges** with existing database entries using UPSERT semantics (same timestamp + device = update).
+
+#### Troubleshooting
+
+**"Error: -ha-url and -ha-token are required when -source=ha"**
+- You forgot to provide the HA URL or token. Both are mandatory when using `-source=ha`.
+
+**"Failed to connect to Home Assistant: connection refused"**
+- Verify the URL is correct and accessible from this machine.
+- If using `http://homeassistant.local`, ensure mDNS/Bonjour works on your network.
+- Try using the IP address instead (e.g., `http://192.168.1.50:8123`).
+- Ensure Home Assistant is running and port 8123 is open.
+
+**"Invalid token or insufficient permissions"**
+- Long-lived tokens are created per user. The token only has access to entities visible to that user.
+- If your device entities were created by another user, they may not be visible.
+- Create the token under a user that can see all devices (e.g., the owner account).
+
+**"No location history found for entity device_tracker.xxx"**
+- The entity may not have recorded any position changes in the specified time range.
+- Check Home Assistant's history: go to **Developer Tools → States**, find the entity, and click **Show Graph**.
+- Expand the time range or try a larger `-days` value.
+- Ensure the entity actually reports GPS coordinates (latitude/longitude attributes).
+
+**"Entity device_tracker.xxx has no latitude/longitude"**
+- Some device_tracker entities source location from Wi-Fi or Bluetooth and only provide `source_type: router` without GPS coordinates.
+- Only entities with `latitude` and `longitude` attributes will be used.
+- Check entity attributes in **Developer Tools → States** (click the entity, view attributes JSON).
+
+**"Build failed: time parsing error"**
+- Home Assistant timestamps are in ISO 8601 format. The parser expects `YYYY-MM-DDTHH:MM:SSZ` or similar.
+- This shouldn't happen with the HA API response, but if you encounter it, file a bug.
+
+**Slow performance / long runtime**
+- See **Performance Tips** below for optimization strategies.
+- Building from HA history can be slower than local images if the time range is large or there are many entities.
+- Consider limiting `-days` or using `-ha-devices` to fetch only needed devices.
+
+#### Performance Tips
+
+- **Limit time range:** Use `-days` or `-start`/`-end` to fetch only the history you need. Smaller range = faster.
+- **Specify devices:** If you know which devices provided the GPS data for your photos, use `-ha-devices` to skip unnecessary entities.
+- **Database reuse:** If you're incrementally adding new data, use `-output` to an existing database; it will UPSERT new entries without duplicates.
+- **Token placement:** Store your HA token in an environment variable instead of typing it on the command line (prevents it from appearing in shell history):
+  ```bash
+  export HA_TOKEN="your_token_here"
+  exif-geotagger build-db -source=ha -ha-url http://homeassistant:8123 -ha-token "$HA_TOKEN" -output db.sqlite
+  ```
+- **Network proximity:** Run the tool on the same local network as Home Assistant to reduce latency.
+- **HA performance:** If Home Assistant's recorder database is large, history queries can be slow. Consider using a dedicated short-term retention policy or export your history periodically.
+
+#### Combining HA and Image Sources
+
+Once the HA integration is available, you can combine sources by running `build-db` multiple times with different `-source` values and the same `-output` database:
+
+```bash
+# Build from local images first
+exif-geotagger build-db -input ~/Photos/iPhone -output db.sqlite
+
+# Then augment with HA history (adds new entries, updates conflicts)
+exif-geotagger build-db -source=ha -ha-url http://ha:8123 -ha-token "$HA_TOKEN" -output db.sqlite
+```
+
+The database uses UPSERT semantics based on `(timestamp, device_model)`, so duplicate entries are safely merged.
+
+#### Known Limitations
+
+- HA location history is stored in the recorder database, which by default retains data for only 10 days (configurable). Older history may be unavailable unless you increased retention.
+- GPS coordinates from the Home Assistant mobile app have limited precision compared to original photos (typically 5-10 decimal places).
+- The tool reads history via the REST API, which may be rate-limited if you have a very large number of entities or extremely long history. Consider splitting into multiple runs with `-ha-devices`.
+- If your device trackers use `source_type: gps` (preferred), coordinates are available. If they use other sources (router, bluetooth), location might be less accurate or unavailable.
+
 ### Tagging Images
 
 Apply GPS coordinates from the database to raw images based on timestamp matching:
