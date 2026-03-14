@@ -107,6 +107,7 @@ func TestEndToEnd_HAtoTagImages(t *testing.T) {
 		"2023-10-01T00:00:00Z",
 		"2023-10-02T00:00:00Z",
 		0,
+		false,
 	)
 	if err != nil {
 		t.Fatalf("BuildDBHA failed: %v", err)
