@@ -8,6 +8,8 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"math"
+	"math/rand"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -23,9 +25,89 @@ import (
 
 // haClient is a concrete implementation of homeassistant.Client using HTTP.
 type haClient struct {
-	baseURL string
-	token   string
-	client  *http.Client
+	baseURL        string
+	token          string
+	client         *http.Client
+	maxRetries     int
+	initialBackoff time.Duration
+	maxBackoff     time.Duration
+	backoffFactor  float64
+}
+
+// newHAClient creates a new HA client with default retry configuration.
+func newHAClient(baseURL, token string) *haClient {
+	return &haClient{
+		baseURL:        baseURL,
+		token:          token,
+		client:         &http.Client{Timeout: 30 * time.Second},
+		maxRetries:     3,
+		initialBackoff: 1 * time.Second,
+		maxBackoff:     30 * time.Second,
+		backoffFactor:  2.0,
+	}
+}
+
+// withRetry performs an HTTP request with exponential backoff retry for rate limiting (429)
+// and server errors (5xx). It returns an error after maxRetries is exhausted.
+func (c *haClient) withRetry(ctx context.Context, req *http.Request) (*http.Response, error) {
+	var resp *http.Response
+	var err error
+
+	for attempt := 0; attempt <= c.maxRetries; attempt++ {
+		if attempt > 0 {
+			// Calculate backoff with jitter
+			backoff := c.calculateBackoff(attempt)
+			select {
+			case <-time.After(backoff):
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+
+		// Clone the request to avoid body reuse issues
+		reqClone := req.Clone(ctx)
+		resp, err = c.client.Do(reqClone)
+		if err != nil {
+			// Network error - retry if we have attempts left
+			if attempt < c.maxRetries {
+				continue
+			}
+			return nil, fmt.Errorf("request failed after %d retries: %w", c.maxRetries, err)
+		}
+
+		// Check if we should retry based on status code
+		if resp.StatusCode == http.StatusTooManyRequests || (resp.StatusCode >= 500 && resp.StatusCode < 600) {
+			// Close body before retry
+			resp.Body.Close()
+			if attempt < c.maxRetries {
+				continue
+			}
+			return nil, fmt.Errorf("request failed with status %d after %d retries", resp.StatusCode, c.maxRetries)
+		}
+
+		// Success or non-retryable status code
+		return resp, nil
+	}
+
+	return nil, fmt.Errorf("retry loop exhausted")
+}
+
+// calculateBackoff computes the wait duration for a given retry attempt with jitter.
+func (c *haClient) calculateBackoff(attempt int) time.Duration {
+	// Exponential backoff: initial * factor^attempt
+	backoff := float64(c.initialBackoff) * math.Pow(c.backoffFactor, float64(attempt-1))
+	// Cap at maxBackoff
+	if backoff > float64(c.maxBackoff) {
+		backoff = float64(c.maxBackoff)
+	}
+	// Add jitter: ±25%
+	jitter := backoff * 0.25
+	backoff = backoff + (rand.Float64()*2-1)*jitter
+	// Ensure non-negative
+	if backoff < 0 {
+		backoff = 0
+	}
+	return time.Duration(backoff)
 }
 
 func (c *haClient) Get(ctx context.Context, url string) (io.ReadCloser, error) {
@@ -36,9 +118,9 @@ func (c *haClient) Get(ctx context.Context, url string) (io.ReadCloser, error) {
 	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := c.client.Do(req)
+	resp, err := c.withRetry(ctx, req)
 	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
+		return nil, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
@@ -55,7 +137,7 @@ func (c *haClient) GetTimezone(ctx context.Context) (string, error) {
 	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := c.client.Do(req)
+	resp, err := c.withRetry(ctx, req)
 	if err != nil {
 		return "", fmt.Errorf("failed to get timezone: %w", err)
 	}
@@ -284,11 +366,7 @@ func BuildDBHA(outputDB, url, token, devices, startStr, endStr string, days int)
 	}
 
 	// 3. Create HA client
-	client := &haClient{
-		baseURL: url,
-		token:   token,
-		client:  &http.Client{Timeout: 30 * time.Second},
-	}
+	client := newHAClient(url, token)
 
 	// 4. Fetch location history
 	ctx := context.Background()
