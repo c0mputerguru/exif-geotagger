@@ -274,9 +274,9 @@ func BuildDBHA(outputDB, url, token, devices, startStr, endStr string, days int)
 			return fmt.Errorf("invalid ha-end: %w", err)
 		}
 	} else {
-		// Default: all available history from year 2000
-		start = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+		// Default: last 365 days
 		end = time.Now()
+		start = end.Add(-365 * 24 * time.Hour)
 	}
 
 	// 3. Create HA client
