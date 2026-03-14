@@ -1,26 +1,50 @@
 package processor
 
 import (
+	"context"
 	"fmt"
 	"io/fs"
 	"log"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/abpatel/exif-geotagger/pkg/database"
 	"github.com/abpatel/exif-geotagger/pkg/exiftool"
 	"github.com/abpatel/exif-geotagger/pkg/matcher"
 )
 
-func BuildDB(inputDir string, outputDB string) error {
+// HAClient fetches location history from Home Assistant
+type HAClient interface {
+	FetchLocationHistory(ctx context.Context, start, end time.Time, entityIDs []string) ([]database.LocationEntry, error)
+}
+
+// BuildDB builds a location database from either images or Home Assistant.
+// Parameters:
+//   - inputDir: directory of images (used when source="images")
+//   - outputDB: path to output SQLite database
+//   - source: "images" or "ha"
+//   - haURL, haToken, haDevices, haStart, haEnd, haDays: HA parameters (used when source="ha")
+func BuildDB(inputDir, outputDB, source, haURL, haToken, haDevices, haStart, haEnd string, haDays int) error {
 	repo, err := database.Connect(outputDB)
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
 	}
 	defer repo.Close()
 
+	switch source {
+	case "images":
+		return buildFromImages(inputDir, outputDB, repo)
+	case "ha":
+		return buildFromHA(repo, haURL, haToken, haDevices, haStart, haEnd, haDays)
+	default:
+		return fmt.Errorf("invalid source: %s (must be 'images' or 'ha')", source)
+	}
+}
+
+func buildFromImages(inputDir, outputDB string, repo *database.Repository) error {
 	count := 0
-	err = filepath.WalkDir(inputDir, func(path string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(inputDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -78,8 +102,14 @@ func BuildDB(inputDir string, outputDB string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Successfully built database at %s with %d entries.\n", outputDB, count)
+	fmt.Printf("Successfully built database at %s with %d entries from images.\n", outputDB, count)
 	return nil
+}
+
+func buildFromHA(repo *database.Repository, url, token, devices, start, end string, days int) error {
+	// TODO: Replace with actual HA client implementation (dependency: ge-h87)
+	// Expected function: FetchLocationHistory(ctx, start, end, entityIDs) ([]LocationEntry, error)
+	return fmt.Errorf("HA source not yet implemented: depends on ge-h87 (Fetch Location History) and ge-0tz (Interactive Device Selection)")
 }
 
 func TagImages(rawDir string, dbPath string, dryRun bool, priorityDevices []string) error {

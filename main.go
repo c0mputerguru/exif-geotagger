@@ -22,16 +22,26 @@ func main() {
 		buildDBCmd := flag.NewFlagSet("build-db", flag.ExitOnError)
 		inputDir := buildDBCmd.String("input", "", "Directory containing reference images with GPS data")
 		outputDB := buildDBCmd.String("output", "db.sqlite", "Path to output SQLite database")
+		source := buildDBCmd.String("source", "images", "Data source: 'images' or 'ha'")
+		haURL := buildDBCmd.String("ha-url", "", "Home Assistant URL")
+		haToken := buildDBCmd.String("ha-token", "", "Home Assistant long-lived access token")
+		haDevices := buildDBCmd.String("ha-devices", "", "Comma-separated list of device entity IDs")
+		haStart := buildDBCmd.String("ha-start", "", "Start time for HA history (RFC3339)")
+		haEnd := buildDBCmd.String("ha-end", "", "End time for HA history (RFC3339)")
+		haDays := buildDBCmd.Int("ha-days", 0, "Number of days of history (alternative to start/end)")
 
 		buildDBCmd.Parse(os.Args[2:])
 
-		if *inputDir == "" {
-			fmt.Println("Error: -input directory is required")
-			buildDBCmd.Usage()
-			os.Exit(1)
+		// Backward compatibility: if -source is not provided or is "images", require -input
+		if *source == "images" || *source == "" {
+			if *inputDir == "" {
+				fmt.Println("Error: -input directory is required when source is 'images'")
+				buildDBCmd.Usage()
+				os.Exit(1)
+			}
 		}
 
-		if err := processor.BuildDB(*inputDir, *outputDB); err != nil {
+		if err := processor.BuildDB(*inputDir, *outputDB, *source, *haURL, *haToken, *haDevices, *haStart, *haEnd, *haDays); err != nil {
 			fmt.Printf("Error building database: %v\n", err)
 			os.Exit(1)
 		}
