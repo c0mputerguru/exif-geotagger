@@ -13,6 +13,7 @@ import (
 type DeviceTracker struct {
 	EntityID     string `json:"entity_id"`
 	FriendlyName string `json:"friendly_name,omitempty"`
+	LastSeen     string `json:"last_seen"`
 }
 
 // StateResponse represents the JSON response from /api/states.
@@ -70,6 +71,7 @@ func DiscoverDeviceTrackers(haURL, haToken string) ([]DeviceTracker, error) {
 		if strings.HasPrefix(state.EntityID, "device_tracker.") {
 			tracker := DeviceTracker{
 				EntityID: state.EntityID,
+				LastSeen: state.LastUpdated,
 			}
 			if friendly, ok := state.Attributes["friendly_name"]; ok {
 				if name, ok := friendly.(string); ok {

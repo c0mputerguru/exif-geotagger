@@ -227,7 +227,11 @@ func BuildDBHA(outputDB, url, token, devices, startStr, endStr string, days int)
 			if name == "" {
 				name = t.EntityID
 			}
-			fmt.Printf("%d. %s (%s)\n", i+1, name, t.EntityID)
+			lastSeen := t.LastSeen
+			if lastSeen != "" {
+				lastSeen = " (last seen: " + lastSeen + ")"
+			}
+			fmt.Printf("%d. %s%s (%s)\n", i+1, name, lastSeen, t.EntityID)
 		}
 		fmt.Print("Enter numbers (comma-separated) to include: ")
 		scanner := bufio.NewScanner(os.Stdin)
