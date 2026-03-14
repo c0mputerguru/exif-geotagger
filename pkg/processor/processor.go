@@ -43,7 +43,19 @@ func (c *haClient) Get(ctx context.Context, url string) (io.ReadCloser, error) {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
-		return nil, fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(body))
+
+		var errMsg string
+		switch resp.StatusCode {
+		case 401:
+			errMsg = "invalid token"
+		case 403:
+			errMsg = "insufficient permissions"
+		case 429:
+			errMsg = "rate limited"
+		default:
+			errMsg = fmt.Sprintf("unexpected status %d: %s", resp.StatusCode, string(body))
+		}
+		return nil, fmt.Errorf("%s", errMsg)
 	}
 	return resp.Body, nil
 }
