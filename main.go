@@ -5,8 +5,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
+	"time"
 
+	"github.com/AlecAivazis/survey/v2"
 	"github.com/abpatel/exif-geotagger/pkg/database"
 	"github.com/abpatel/exif-geotagger/pkg/processor"
 )
@@ -29,6 +32,7 @@ func main() {
 		haStart := buildDBCmd.String("ha-start", "", "Start time for HA history (RFC3339)")
 		haEnd := buildDBCmd.String("ha-end", "", "End time for HA history (RFC3339)")
 		haDays := buildDBCmd.Int("ha-days", 0, "Number of days of history (alternative to start/end)")
+		all := buildDBCmd.Bool("all", false, "Select all discovered devices")
 
 		buildDBCmd.Parse(os.Args[2:])
 
@@ -41,9 +45,74 @@ func main() {
 			}
 		}
 
-		if err := processor.BuildDB(*inputDir, *outputDB, *source, *haURL, *haToken, *haDevices, *haStart, *haEnd, *haDays); err != nil {
-			fmt.Printf("Error building database: %v\n", err)
-			os.Exit(1)
+		if *source == "ha" {
+			// Call BuildDBHA with HA parameters
+			if err := processor.BuildDBHA(*outputDB, *haURL, *haToken, *haDevices, *haStart, *haEnd, *haDays); err != nil {
+				fmt.Printf("Error building database from Home Assistant: %v\n", err)
+				os.Exit(1)
+			}
+		} else {
+			// Images source: determine device filter from flags or interactive discovery
+			var deviceFilter []string
+			if *all {
+				// deviceFilter remains nil => all devices
+			} else if *haDevices != "" {
+				parts := strings.Split(*haDevices, ",")
+				for _, p := range parts {
+					deviceFilter = append(deviceFilter, strings.TrimSpace(p))
+				}
+			} else {
+				// Interactive device discovery
+				devices, err := processor.DiscoverDevices(*inputDir)
+				if err != nil {
+					fmt.Printf("Error discovering devices: %v\n", err)
+					os.Exit(1)
+				}
+				if len(devices) == 0 {
+					fmt.Println("No devices with GPS data found in the input directory.")
+					os.Exit(1)
+				}
+				// Prepare options for prompt
+				type devInfo struct {
+					model    string
+					lastSeen time.Time
+				}
+				var options []devInfo
+				for model, ts := range devices {
+					options = append(options, devInfo{model: model, lastSeen: ts})
+				}
+				// Sort by lastSeen descending for better UX
+				sort.Slice(options, func(i, j int) bool {
+					return options[i].lastSeen.After(options[j].lastSeen)
+				})
+				var surveyOpts []survey.Option
+				for _, opt := range options {
+					display := fmt.Sprintf("%s (last seen: %s)", opt.model, opt.lastSeen.Format("2006-01-02 15:04:05"))
+					surveyOpts = append(surveyOpts, survey.Option{
+						Name:  display,
+						Value: opt.model,
+					})
+				}
+				var selected []string
+				err = survey.AskOne(&survey.MultiSelect{
+					Message: "Select devices to include in database:",
+					Options: surveyOpts,
+				}, &selected)
+				if err != nil {
+					fmt.Printf("Error during device selection: %v\n", err)
+					os.Exit(1)
+				}
+				deviceFilter = selected
+				if len(deviceFilter) == 0 {
+					fmt.Println("No devices selected. Exiting.")
+					os.Exit(0)
+				}
+			}
+
+			if err := processor.BuildDB(*inputDir, *outputDB, deviceFilter); err != nil {
+				fmt.Printf("Error building database: %v\n", err)
+				os.Exit(1)
+			}
 		}
 
 	case "print-db":
