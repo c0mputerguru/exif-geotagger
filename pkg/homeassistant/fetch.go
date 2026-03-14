@@ -61,12 +61,14 @@ func FetchLocationHistory(ctx context.Context, client Client, start, end time.Ti
 	}
 
 	var entries []database.LocationEntry
+	skipCounts := make(map[string]int)
 	for _, entityStates := range resp {
 		for _, state := range entityStates {
 			// Parse the state to extract location info
 			lat, lon, alt, ts, err := parseLocationFromState(state)
 			if err != nil {
-				// Skip malformed entries but continue processing others
+				// Track skip reason
+				skipCounts[err.Error()]++
 				continue
 			}
 			// Build LocationEntry (we don't have city/state/country from HA usually)
@@ -78,6 +80,18 @@ func FetchLocationHistory(ctx context.Context, client Client, start, end time.Ti
 				DeviceModel: state.EntityID, // Use entity ID as device model
 			}
 			entries = append(entries, entry)
+		}
+	}
+
+	// Log summary of skipped entries
+	totalSkipped := 0
+	for _, count := range skipCounts {
+		totalSkipped += count
+	}
+	if totalSkipped > 0 {
+		fmt.Printf("Skipped %d location entries:\n", totalSkipped)
+		for reason, count := range skipCounts {
+			fmt.Printf("  - %s: %d\n", reason, count)
 		}
 	}
 
