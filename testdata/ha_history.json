@@ -1,0 +1,53 @@
+[
+  {
+    "description": "complete",
+    "timestamp": "2023-10-01T12:00:00Z",
+    "latitude": 37.7749,
+    "longitude": -122.4194,
+    "altitude": 15.2,
+    "city": "San Francisco",
+    "state": "CA",
+    "country": "US",
+    "timezone": "America/Los_Angeles"
+  },
+  {
+    "description": "missing altitude",
+    "timestamp": "2023-10-02T13:00:00Z",
+    "latitude": 34.0522,
+    "longitude": -118.2437,
+    "city": "Los Angeles",
+    "state": "CA",
+    "country": "US"
+  },
+  {
+    "description": "missing GPS",
+    "timestamp": "2023-10-03T14:00:00Z",
+    "city": "Nowhere",
+    "country": "US"
+  },
+  {
+    "description": "missing timestamp",
+    "latitude": 40.7128,
+    "longitude": -74.0060,
+    "city": "New York",
+    "state": "NY",
+    "country": "US"
+  },
+  {
+    "description": "timestamp with colon format",
+    "timestamp": "2023:10:04 15:00:00",
+    "latitude": 41.8781,
+    "longitude": -87.6298,
+    "city": "Chicago",
+    "state": "IL",
+    "country": "US"
+  },
+  {
+    "description": "invalid timestamp",
+    "timestamp": "not-a-valid-time",
+    "latitude": 51.5074,
+    "longitude": -0.1278,
+    "city": "London",
+    "country": "GB"
+  }
+]
