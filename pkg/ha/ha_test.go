@@ -7,13 +7,17 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 )
 
 func TestParseHAEntry(t *testing.T) {
-	fixturePath := "../../testdata/ha_history.json"
+	_, filename, _, _ := runtime.Caller(0)
+	baseDir := filepath.Dir(filename)
+	fixturePath := filepath.Join(baseDir, "..", "..", "testdata", "ha_history.json")
 	data, err := os.ReadFile(fixturePath)
 	if err != nil {
 		t.Fatalf("failed to read fixture: %v", err)
