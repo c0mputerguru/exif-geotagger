@@ -72,13 +72,55 @@ func (c *haClient) GetTimezone(ctx context.Context) (string, error) {
 	return cfg.Timezone, nil
 }
 
+// DiscoverDevices scans the input directory for images with GPS metadata and returns
+// a map of device models to the latest timestamp seen for each device.
+func DiscoverDevices(inputDir string) (map[string]time.Time, error) {
+	devices := make(map[string]time.Time)
+
+	err := filepath.WalkDir(inputDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		ext := strings.ToLower(filepath.Ext(path))
+		if ext != ".jpg" && ext != ".jpeg" && ext != ".heic" && ext != ".png" {
+			return nil
+		}
+		meta, err := exiftool.ReadMetadata(path)
+		if err != nil {
+			return nil
+		}
+		if meta.GPSLatitude == nil || meta.GPSLongitude == nil {
+			return nil
+		}
+		ts, err := meta.GetTimestamp()
+		if err != nil {
+			return nil
+		}
+		model := "Unknown"
+		if meta.Model != nil {
+			model = *meta.Model
+		}
+		// Update with most recent timestamp for this model
+		if existing, ok := devices[model]; !ok || ts.After(existing) {
+			devices[model] = ts
+		}
+		return nil
+	})
+
+	return devices, err
+}
+
 // BuildDB builds a location database from either images or Home Assistant.
 // Parameters:
 //   - inputDir: directory of images (used when source="images")
 //   - outputDB: path to output SQLite database
 //   - source: "images" or "ha"
 //   - haURL, haToken, haDevices, haStart, haEnd, haDays: HA parameters (used when source="ha")
-func BuildDB(inputDir, outputDB, source, haURL, haToken, haDevices, haStart, haEnd string, haDays int) error {
+//   - imagesDeviceFilter: optional filter for device models (used when source="images")
+func BuildDB(inputDir, outputDB, source, haURL, haToken, haDevices, haStart, haEnd string, haDays int, imagesDeviceFilter []string) error {
 	repo, err := database.Connect(outputDB)
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
@@ -87,82 +129,12 @@ func BuildDB(inputDir, outputDB, source, haURL, haToken, haDevices, haStart, haE
 
 	switch source {
 	case "images":
-		return buildFromImages(inputDir, outputDB, repo)
+		return buildFromImages(inputDir, outputDB, imagesDeviceFilter)
 	case "ha":
 		return buildFromHA(repo, haURL, haToken, haDevices, haStart, haEnd, outputDB, haDays)
 	default:
 		return fmt.Errorf("invalid source: %s (must be 'images' or 'ha')", source)
 	}
-}
-
-func buildFromImages(inputDir, outputDB string, repo *database.Repository) error {
-	count := 0
-	skipped := 0
-	err := filepath.WalkDir(inputDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-
-		// Simple filter for common image types
-		ext := strings.ToLower(filepath.Ext(path))
-		if ext != ".jpg" && ext != ".jpeg" && ext != ".heic" && ext != ".png" {
-			return nil
-		}
-
-		meta, err := exiftool.ReadMetadata(path)
-		if err != nil {
-			log.Printf("Skipping %s: failed to read metadata: %v\n", path, err)
-			skipped++
-			return nil
-		}
-
-		if meta.GPSLatitude == nil || meta.GPSLongitude == nil {
-			// Skip if no GPS
-			skipped++
-			return nil
-		}
-
-		ts, err := meta.GetTimestamp()
-		if err != nil {
-			log.Printf("Skipping %s: no valid timestamp\n", path)
-			skipped++
-			return nil
-		}
-
-		model := "Unknown"
-		if meta.Model != nil {
-			model = *meta.Model
-		}
-
-		entry := database.LocationEntry{
-			Timestamp:   ts,
-			Latitude:    *meta.GPSLatitude,
-			Longitude:   *meta.GPSLongitude,
-			Altitude:    meta.GPSAltitude,
-			City:        meta.City,
-			State:       meta.State,
-			Country:     meta.Country,
-			DeviceModel: model,
-		}
-
-		if err := repo.Insert(entry); err != nil {
-			log.Printf("Warning: failed to insert location for %s: %v", path, err)
-			skipped++
-		} else {
-			count++
-		}
-
-		return nil
-	})
-
-	if err != nil {
-		return err
-	}
-	fmt.Printf("Successfully built database at %s with %d entries (skipped %d).\n", outputDB, count, skipped)
-	return nil
 }
 
 func buildFromHA(repo *database.Repository, url, token, devices, startStr, endStr, outputDB string, days int) error {
@@ -276,6 +248,86 @@ func buildFromHA(repo *database.Repository, url, token, devices, startStr, endSt
 	return nil
 }
 
+func buildFromImages(inputDir, outputDB string, filterModels []string) error {
+	repo, err := database.Connect(outputDB)
+	if err != nil {
+		return fmt.Errorf("failed to open database: %w", err)
+	}
+	defer repo.Close()
+
+	// Prepare filter set if needed
+	filterSet := make(map[string]struct{})
+	if len(filterModels) > 0 {
+		for _, m := range filterModels {
+			filterSet[m] = struct{}{}
+		}
+	}
+
+	count := 0
+	skipped := 0
+	err = filepath.WalkDir(inputDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		ext := strings.ToLower(filepath.Ext(path))
+		if ext != ".jpg" && ext != ".jpeg" && ext != ".heic" && ext != ".png" {
+			return nil
+		}
+		meta, err := exiftool.ReadMetadata(path)
+		if err != nil {
+			log.Printf("Skipping %s: failed to read metadata: %v\n", path, err)
+			skipped++
+			return nil
+		}
+		if meta.GPSLatitude == nil || meta.GPSLongitude == nil {
+			// Skip if no GPS
+			skipped++
+			return nil
+		}
+		ts, err := meta.GetTimestamp()
+		if err != nil {
+			log.Printf("Skipping %s: no valid timestamp\n", path)
+			skipped++
+			return nil
+		}
+		model := "Unknown"
+		if meta.Model != nil {
+			model = *meta.Model
+		}
+		// Apply filter if set
+		if len(filterSet) > 0 {
+			if _, ok := filterSet[model]; !ok {
+				return nil // skip this device
+			}
+		}
+		entry := database.LocationEntry{
+			Timestamp:   ts,
+			Latitude:    *meta.GPSLatitude,
+			Longitude:   *meta.GPSLongitude,
+			Altitude:    meta.GPSAltitude,
+			City:        meta.City,
+			State:       meta.State,
+			Country:     meta.Country,
+			DeviceModel: model,
+		}
+		if err := repo.Insert(entry); err != nil {
+			log.Printf("Warning: failed to insert location for %s: %v", path, err)
+			skipped++
+		} else {
+			count++
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Successfully built database at %s with %d entries (skipped %d).\n", outputDB, count, skipped)
+	return nil
+}
+
 func TagImages(rawDir string, dbPath string, dryRun bool, priorityDevices []string) error {
 	repo, err := database.Connect(dbPath)
 	if err != nil {
@@ -341,7 +393,7 @@ func TagImages(rawDir string, dbPath string, dryRun bool, priorityDevices []stri
 		}
 
 		if err := exiftool.WriteMetadata(path, newMeta, dryRun); err != nil {
-			log.Printf("Failed to write metadata to %s: %v", path, err)
+			log.Printf("Failed to write metadata to %s: %v\n", path, err)
 		} else {
 			if !dryRun {
 				fmt.Printf("Successfully tagged %s with location from %s (time diff: %v)\n", path, match.DeviceModel, match.Timestamp.Sub(ts))
