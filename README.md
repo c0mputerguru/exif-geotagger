@@ -126,9 +126,11 @@ When using `-source=ha`, the following flags become available:
 - `-ha-url` (required): Home Assistant base URL (e.g., `http://homeassistant.local:8123` or `https://my-ha.example.com`)
 - `-ha-token` (required): Long-lived access token created above
 - `-ha-devices` (optional): Comma-separated list of entity IDs to fetch (e.g., `device_tracker.iphone,device_tracker.pixel`). If omitted, all device_tracker entities with GPS data are used.
-- `-ha-start` / `-ha-end` (optional): Time range for fetching history (RFC3339 format, e.g., `-ha-start 2024-01-01T00:00:00Z -ha-end 2024-01-31T23:59:59Z`). Default is last 30 days.
-- `-ha-days` (optional): Number of days of history to fetch (overrides `-ha-start`/`-ha-end` if present). Default: 30.
+- `-ha-start` / `-ha-end` (optional): Time range for fetching history (RFC3339 format, e.g., `-ha-start 2024-01-01T00:00:00Z -ha-end 2024-01-31T23:59:59Z`). Default is last 365 days.
+- `-ha-days` (optional): Number of days of history to fetch (overrides `-ha-start`/`-ha-end` if present). Default: 365.
 - `-output` (optional): Path to output SQLite database (default: `db.sqlite`)
+
+**Note:** The `-all` flag (used with the `images` source) is not applicable for HA source. For HA, device selection is controlled via `-ha-devices`; if omitted, all device_tracker entities with GPS data are used.
 
 #### Example Commands
 
