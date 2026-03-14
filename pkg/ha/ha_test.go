@@ -19,10 +19,11 @@ func TestParseHAEntry(t *testing.T) {
 		t.Fatalf("failed to read fixture: %v", err)
 	}
 
-	var fixtures []struct {
-		Desc string  `json:"description"`
-		Raw  HAEntry `json:",inline"`
+	type FixtureEntry struct {
+		Description string `json:"description"`
+		HAEntry
 	}
+	var fixtures []FixtureEntry
 	if err := json.Unmarshal(data, &fixtures); err != nil {
 		t.Fatalf("failed to unmarshal fixture: %v", err)
 	}
@@ -56,7 +57,7 @@ func TestParseHAEntry(t *testing.T) {
 		"missing timestamp": {
 			hasLocation: true, lat: 40.7128, lon: -74.0060,
 			alt: nil, city: strPtr("New York"),
-			hasTZ: false, parseErr: true, // GetTimestamp should error due to empty timestamp
+			hasTZ: false, parseErr: true,
 		},
 		"timestamp with colon format": {
 			hasLocation: true, lat: 41.8781, lon: -87.6298,
@@ -71,61 +72,61 @@ func TestParseHAEntry(t *testing.T) {
 	}
 
 	for _, f := range fixtures {
-		t.Run(f.Desc, func(t *testing.T) {
-			expCase := exp[f.Desc]
+		t.Run(f.Description, func(t *testing.T) {
+			expCase := exp[f.Description]
 
 			// Check location presence
-			if got := f.Raw.HasLocation(); got != expCase.hasLocation {
+			if got := f.HasLocation(); got != expCase.hasLocation {
 				t.Errorf("HasLocation() = %v, want %v", got, expCase.hasLocation)
 			}
 
 			// Check latitude if present
 			if expCase.lat != 0 {
-				if f.Raw.Latitude == nil || *f.Raw.Latitude != expCase.lat {
-					t.Errorf("Latitude = %v, want %f", f.Raw.Latitude, expCase.lat)
+				if f.Latitude == nil || *f.Latitude != expCase.lat {
+					t.Errorf("Latitude = %v, want %f", f.Latitude, expCase.lat)
 				}
-			} else if f.Raw.Latitude != nil {
-				t.Errorf("Latitude unexpectedly set to %v", *f.Raw.Latitude)
+			} else if f.Latitude != nil {
+				t.Errorf("Latitude unexpectedly set to %v", *f.Latitude)
 			}
 
 			// Check longitude if present
 			if expCase.lon != 0 {
-				if f.Raw.Longitude == nil || *f.Raw.Longitude != expCase.lon {
-					t.Errorf("Longitude = %v, want %f", f.Raw.Longitude, expCase.lon)
+				if f.Longitude == nil || *f.Longitude != expCase.lon {
+					t.Errorf("Longitude = %v, want %f", f.Longitude, expCase.lon)
 				}
-			} else if f.Raw.Longitude != nil {
-				t.Errorf("Longitude unexpectedly set to %v", *f.Raw.Longitude)
+			} else if f.Longitude != nil {
+				t.Errorf("Longitude unexpectedly set to %v", *f.Longitude)
 			}
 
 			// Check altitude
 			if expCase.alt == nil {
-				if f.Raw.Altitude != nil {
-					t.Errorf("Altitude unexpectedly set to %v", *f.Raw.Altitude)
+				if f.Altitude != nil {
+					t.Errorf("Altitude unexpectedly set to %v", *f.Altitude)
 				}
-			} else if f.Raw.Altitude == nil || *f.Raw.Altitude != *expCase.alt {
-				t.Errorf("Altitude = %v, want %f", f.Raw.Altitude, *expCase.alt)
+			} else if f.Altitude == nil || *f.Altitude != *expCase.alt {
+				t.Errorf("Altitude = %v, want %f", f.Altitude, *expCase.alt)
 			}
 
 			// Check city
 			if expCase.city == nil {
-				if f.Raw.City != nil {
-					t.Errorf("City unexpectedly set to %q", *f.Raw.City)
+				if f.City != nil {
+					t.Errorf("City unexpectedly set to %q", *f.City)
 				}
-			} else if f.Raw.City == nil || *f.Raw.City != *expCase.city {
-				t.Errorf("City = %v, want %q", f.Raw.City, *expCase.city)
+			} else if f.City == nil || *f.City != *expCase.city {
+				t.Errorf("City = %v, want %q", f.City, *expCase.city)
 			}
 
 			// Check timezone presence
 			if expCase.hasTZ {
-				if f.Raw.Timezone == nil || *f.Raw.Timezone != expCase.tz {
-					t.Errorf("Timezone = %v, want %q", f.Raw.Timezone, expCase.tz)
+				if f.Timezone == nil || *f.Timezone != expCase.tz {
+					t.Errorf("Timezone = %v, want %q", f.Timezone, expCase.tz)
 				}
-			} else if f.Raw.Timezone != nil {
-				t.Errorf("Timezone unexpectedly set to %q", *f.Raw.Timezone)
+			} else if f.Timezone != nil {
+				t.Errorf("Timezone unexpectedly set to %q", *f.Timezone)
 			}
 
 			// Check timestamp parsing
-			ts, err := f.Raw.GetTimestamp()
+			ts, err := f.GetTimestamp()
 			if expCase.parseErr {
 				if err == nil {
 					t.Errorf("GetTimestamp() expected error, got none")
@@ -135,14 +136,14 @@ func TestParseHAEntry(t *testing.T) {
 					t.Errorf("GetTimestamp() unexpected error: %v", err)
 				} else {
 					// For complete case, check approximate time matches (ignore zone differences)
-					if f.Desc == "complete" {
+					if f.Description == "complete" {
 						expTime := time.Date(2023, 10, 1, 12, 0, 0, 0, time.UTC)
 						if !ts.Equal(expTime) {
 							t.Errorf("GetTimestamp() = %v, want %v", ts, expTime)
 						}
 					}
 					// For colon format case, expect Oct 4, 2023 at 15:00 UTC
-					if f.Desc == "timestamp with colon format" {
+					if f.Description == "timestamp with colon format" {
 						expTime := time.Date(2023, 10, 4, 15, 0, 0, 0, time.UTC)
 						if !ts.Equal(expTime) {
 							t.Errorf("GetTimestamp() = %v, want %v", ts, expTime)

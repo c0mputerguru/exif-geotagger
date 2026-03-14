@@ -92,7 +92,7 @@ func (c *Client) GetLocationHistory(ctx context.Context) ([]HAEntry, error) {
 		var result struct {
 			Locations []HAEntry `json:"locations"`
 		}
-		if err := json.NewDecoder(resp.Body).Decode(&result.Locations); err != nil {
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 			return nil, fmt.Errorf("failed to decode response: %w", err)
 		}
 		return result.Locations, nil
