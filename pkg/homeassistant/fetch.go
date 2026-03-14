@@ -13,9 +13,11 @@ import (
 
 // HAState represents a single state entry from HA history.
 type HAState struct {
-	EntityID string      `json:"entity_id"`
-	State    string      `json:"state"`
-	LastID   interface{} `json:"last_id"` // Can be string or number
+	EntityID       string      `json:"entity_id"`
+	State          string      `json:"state"`
+	LastID         interface{} `json:"last_id"` // Can be string or number
+	LastUpdated    string      `json:"last_updated"`
+	LastUpdatedISO string      `json:"last_updated_iso"`
 	// Other fields may exist but we only need the state attributes
 	Attributes json.RawMessage `json:"attributes"` // Keep raw for latitude/longitude extraction
 }
