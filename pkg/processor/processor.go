@@ -1,22 +1,75 @@
 package processor
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
+	"net/http"
+	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/abpatel/exif-geotagger/pkg/database"
 	"github.com/abpatel/exif-geotagger/pkg/exiftool"
+	"github.com/abpatel/exif-geotagger/pkg/homeassistant"
 	"github.com/abpatel/exif-geotagger/pkg/matcher"
 )
 
-// HAClient fetches location history from Home Assistant
-type HAClient interface {
-	FetchLocationHistory(ctx context.Context, start, end time.Time, entityIDs []string) ([]database.LocationEntry, error)
+// haClient is a concrete implementation of homeassistant.Client using HTTP.
+type haClient struct {
+	baseURL string
+	token   string
+	client  *http.Client
+}
+
+func (c *haClient) Get(ctx context.Context, url string) (io.ReadCloser, error) {
+	fullURL := c.baseURL + url
+	req, err := http.NewRequestWithContext(ctx, "GET", fullURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		return nil, fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(body))
+	}
+	return resp.Body, nil
+}
+
+func (c *haClient) GetTimezone(ctx context.Context) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/api/config", nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to get timezone: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("unexpected status %d", resp.StatusCode)
+	}
+	var cfg struct {
+		Timezone string `json:"timezone"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&cfg); err != nil {
+		return "", fmt.Errorf("failed to decode config: %w", err)
+	}
+	return cfg.Timezone, nil
 }
 
 // BuildDB builds a location database from either images or Home Assistant.
@@ -36,7 +89,7 @@ func BuildDB(inputDir, outputDB, source, haURL, haToken, haDevices, haStart, haE
 	case "images":
 		return buildFromImages(inputDir, outputDB, repo)
 	case "ha":
-		return buildFromHA(repo, haURL, haToken, haDevices, haStart, haEnd, haDays)
+		return buildFromHA(repo, haURL, haToken, haDevices, haStart, haEnd, outputDB, haDays)
 	default:
 		return fmt.Errorf("invalid source: %s (must be 'images' or 'ha')", source)
 	}
@@ -112,10 +165,115 @@ func buildFromImages(inputDir, outputDB string, repo *database.Repository) error
 	return nil
 }
 
-func buildFromHA(repo *database.Repository, url, token, devices, start, end string, days int) error {
-	// TODO: Replace with actual HA client implementation (dependency: ge-h87)
-	// Expected function: FetchLocationHistory(ctx, start, end, entityIDs) ([]LocationEntry, error)
-	return fmt.Errorf("HA source not yet implemented: depends on ge-h87 (Fetch Location History) and ge-0tz (Interactive Device Selection)")
+func buildFromHA(repo *database.Repository, url, token, devices, startStr, endStr, outputDB string, days int) error {
+	// Trim trailing slash if present
+	url = strings.TrimSuffix(url, "/")
+
+	// 1. Determine entity IDs
+	var entityIDs []string
+	if devices != "" {
+		parts := strings.Split(devices, ",")
+		for _, p := range parts {
+			if id := strings.TrimSpace(p); id != "" {
+				entityIDs = append(entityIDs, id)
+			}
+		}
+		if len(entityIDs) == 0 {
+			return fmt.Errorf("no valid entity IDs provided")
+		}
+	} else {
+		// Discover devices interactively
+		trackers, err := homeassistant.DiscoverDeviceTrackers(url, token)
+		if err != nil {
+			return fmt.Errorf("failed to discover device trackers: %w", err)
+		}
+		if len(trackers) == 0 {
+			return fmt.Errorf("no device_tracker entities found")
+		}
+		fmt.Println("Discovered device_tracker entities:")
+		for i, t := range trackers {
+			name := t.FriendlyName
+			if name == "" {
+				name = t.EntityID
+			}
+			fmt.Printf("%d. %s (%s)\n", i+1, name, t.EntityID)
+		}
+		fmt.Print("Enter numbers (comma-separated) to include: ")
+		scanner := bufio.NewScanner(os.Stdin)
+		if !scanner.Scan() {
+			return fmt.Errorf("failed to read selection")
+		}
+		input := scanner.Text()
+		if strings.TrimSpace(input) == "" {
+			return fmt.Errorf("no devices selected")
+		}
+		idxStrs := strings.Split(input, ",")
+		selected := []string{}
+		for _, idxStr := range idxStrs {
+			idxStr = strings.TrimSpace(idxStr)
+			if idxStr == "" {
+				continue
+			}
+			idx, err := strconv.Atoi(idxStr)
+			if err != nil || idx < 1 || idx > len(trackers) {
+				fmt.Fprintf(os.Stderr, "Invalid selection: %s\n", idxStr)
+				continue
+			}
+			selected = append(selected, trackers[idx-1].EntityID)
+		}
+		if len(selected) == 0 {
+			return fmt.Errorf("no valid devices selected")
+		}
+		entityIDs = selected
+	}
+
+	// 2. Determine time range
+	var start, end time.Time
+	var err error
+	if days > 0 {
+		end = time.Now()
+		start = end.Add(-time.Duration(days) * 24 * time.Hour)
+	} else if startStr != "" && endStr != "" {
+		start, err = time.Parse(time.RFC3339, startStr)
+		if err != nil {
+			return fmt.Errorf("invalid ha-start: %w", err)
+		}
+		end, err = time.Parse(time.RFC3339, endStr)
+		if err != nil {
+			return fmt.Errorf("invalid ha-end: %w", err)
+		}
+	} else {
+		// Default: all available history from year 2000
+		start = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+		end = time.Now()
+	}
+
+	// 3. Create HA client
+	client := &haClient{
+		baseURL: url,
+		token:   token,
+		client:  &http.Client{Timeout: 30 * time.Second},
+	}
+
+	// 4. Fetch location history
+	ctx := context.Background()
+	entries, err := homeassistant.FetchLocationHistory(ctx, client, start, end, entityIDs)
+	if err != nil {
+		return fmt.Errorf("failed to fetch location history: %w", err)
+	}
+
+	// 5. Insert into database
+	count := 0
+	for _, e := range entries {
+		if err := repo.Insert(e); err != nil {
+			log.Printf("Warning: failed to insert location for %s: %v", e.DeviceModel, err)
+		} else {
+			count++
+		}
+	}
+
+	fmt.Printf("Successfully built database at %s with %d entries from Home Assistant.\n", outputDB, count)
+	return nil
 }
 
 func TagImages(rawDir string, dbPath string, dryRun bool, priorityDevices []string) error {

@@ -126,8 +126,8 @@ When using `-source=ha`, the following flags become available:
 - `-ha-url` (required): Home Assistant base URL (e.g., `http://homeassistant.local:8123` or `https://my-ha.example.com`)
 - `-ha-token` (required): Long-lived access token created above
 - `-ha-devices` (optional): Comma-separated list of entity IDs to fetch (e.g., `device_tracker.iphone,device_tracker.pixel`). If omitted, all device_tracker entities with GPS data are used.
-- `-start` / `-end` (optional): Time range for fetching history (e.g., `-start 2024-01-01 -end 2024-01-31`). Format: `YYYY-MM-DD`. Default is last 30 days.
-- `-days` (optional): Number of days of history to fetch (overrides `-start` if both present). Default: 30.
+- `-ha-start` / `-ha-end` (optional): Time range for fetching history (RFC3339 format, e.g., `-ha-start 2024-01-01T00:00:00Z -ha-end 2024-01-31T23:59:59Z`). Default is last 30 days.
+- `-ha-days` (optional): Number of days of history to fetch (overrides `-ha-start`/`-ha-end` if present). Default: 30.
 - `-output` (optional): Path to output SQLite database (default: `db.sqlite`)
 
 #### Example Commands
@@ -146,7 +146,7 @@ exif-geotagger build-db -source=ha \
 exif-geotagger build-db -source=ha \
   -ha-url https://my-ha.example.com \
   -ha-token "TOKEN" \
-  -days 7 \
+  -ha-days 7 \
   -output ha-db.sqlite
 ```
 
@@ -155,7 +155,7 @@ exif-geotagger build-db -source=ha \
 exif-geotagger build-db -source=ha \
   -ha-url http://192.168.1.100:8123 \
   -ha-token "TOKEN" \
-  -start 2024-12-01 -end 2024-12-15 \
+  -ha-start 2024-12-01T00:00:00Z -ha-end 2024-12-15T23:59:59Z \
   -output ha-db.sqlite
 ```
 
@@ -314,10 +314,14 @@ Core orchestration package.
 #### Functions
 
 ```go
-// BuildDB scans a directory for images with GPS data and populates a SQLite database.
-// Supported image extensions: .jpg, .jpeg, .heic, .png
+// BuildDB builds a location database from either reference images or Home Assistant.
+// Parameters:
+//   inputDir - directory of images (used when source="images")
+//   outputDB - path to output SQLite database
+//   source - data source: "images" or "ha"
+//   haURL, haToken, haDevices, haStart, haEnd, haDays - HA parameters (used when source="ha")
 // Returns error if database creation fails.
-func BuildDB(inputDir, outputDB string) error
+func BuildDB(inputDir, outputDB, source, haURL, haToken, haDevices, haStart, haEnd string, haDays int) error
 
 // TagImages processes a directory of raw images and applies GPS metadata
 // from the database based on timestamp matching.
@@ -438,6 +442,59 @@ func WriteMetadata(filePath string, meta Metadata, dryRun bool) error
 func (m *Metadata) GetTimestamp() (time.Time, error)
 ```
 
+### homeassistant Package
+
+REST API client for Home Assistant device_tracker history.
+
+#### Types
+
+```go
+// DeviceTracker represents a discovered device_tracker entity.
+type DeviceTracker struct {
+    EntityID     string
+    FriendlyName string
+    SourceType   string
+}
+
+// HAState represents a single state entry from HA history.
+type HAState struct {
+    EntityID    string
+    State       string
+    Attributes  map[string]interface{}
+    LastChanged string
+    LastUpdated string
+}
+
+// HistoryResponse represents the 2D array response from /api/history/period.
+type HistoryResponse [][]HAState
+```
+
+#### Functions
+
+```go
+// DiscoverDeviceTrackers returns all device_tracker entities from Home Assistant.
+// Parameters:
+//   - haURL: Home Assistant base URL (e.g., "http://homeassistant:8123")
+//   - haToken: Long-lived access token for authentication
+// Returns:
+//   - []DeviceTracker: list of discovered device trackers
+//   - error: network or decoding errors
+func DiscoverDeviceTrackers(haURL, haToken string) ([]DeviceTracker, error)
+
+// FetchLocationHistory retrieves historical states for the given device trackers
+// within the specified time range. start and end should be in UTC.
+// It calls /api/history/period and converts each state to a LocationEntry.
+// Only states with valid latitude/longitude are included.
+func FetchLocationHistory(ctx context.Context, client Client, start, end time.Time, entityIDs []string) ([]database.LocationEntry, error)
+
+// GetTimezone retrieves the Home Assistant timezone configuration.
+func (c *Client) GetTimezone(ctx context.Context) (string, error)
+
+// ValidateEntityIDs ensures the provided entity IDs are valid device_tracker entities.
+// This can be used to verify user input.
+func (c *Client) ValidateEntityIDs(ctx context.Context, entityIDs []string) ([]DeviceTracker, error)
+```
+
 ### matcher Package
 
 Timestamp-based location matching engine.
@@ -540,9 +597,10 @@ exif-geotagger/
 ├── go.sum               # Dependency checksums
 ├── README.md            # This file
 └── pkg/
-    ├── processor/       # High-level workflows (BuildDB, TagImages)
+    ├── processor/       # High-level workflows (BuildDB, BuildDBFromHA, TagImages)
     ├── database/        # SQLite repository and schema
     ├── exiftool/        # ExifTool wrapper and metadata types
+    ├── homeassistant/   # Home Assistant REST API client
     └── matcher/         # Timestamp-based location matching
 ```
 
