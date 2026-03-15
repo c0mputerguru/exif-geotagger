@@ -171,7 +171,7 @@ func BuildDB(inputDir string, outputDB string, filterModels []string) error {
 			Country:     meta.Country,
 			DeviceModel: model,
 		}
-		if err := repo.Insert(entry); err != nil {
+		if err := repo.Insert(context.Background(), entry); err != nil {
 			log.Printf("Warning: failed to insert location for %s: %v", path, err)
 			skipped++
 		} else {
@@ -274,7 +274,7 @@ func BuildDBHA(outputDB, url, token, devices, startStr, endStr string, days int,
 	}
 	defer repo.Close()
 	for _, e := range entries {
-		if err := repo.Insert(e); err != nil {
+		if err := repo.Insert(ctx, e); err != nil {
 			log.Printf("Warning: failed to insert location for %s: %v", e.DeviceModel, err)
 		} else {
 			count++
@@ -333,7 +333,7 @@ func TagImages(rawDir string, dbPath string, dryRun bool, priorityDevices []stri
 			return nil
 		}
 
-		match, err := provider.FindBestMatch(ts, priorityDevices)
+		match, err := provider.FindBestMatch(context.Background(), ts, priorityDevices)
 		if err != nil {
 			log.Printf("No match found for %s (time: %s): %v\n", path, ts, err)
 			skipped++

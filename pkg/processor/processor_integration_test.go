@@ -1,6 +1,7 @@
 package processor
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"image"
@@ -119,7 +120,7 @@ func TestEndToEnd_HAtoTagImages(t *testing.T) {
 		t.Fatalf("connect DB: %v", err)
 	}
 	defer repo.Close()
-	entries, err := repo.GetAll()
+	entries, err := repo.GetAll(context.Background())
 	if err != nil {
 		t.Fatalf("get all entries: %v", err)
 	}

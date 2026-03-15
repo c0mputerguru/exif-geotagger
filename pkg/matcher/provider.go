@@ -1,6 +1,7 @@
 package matcher
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -62,8 +63,8 @@ func NewSQLiteLocationProvider(repo *database.Repository, opts ...ProviderOption
 	}
 }
 
-func (s *SQLiteLocationProvider) FindBestMatch(targetTime time.Time, priorityDevices []string) (database.LocationEntry, error) {
-	entries, err := s.repo.FindClosest(targetTime, s.searchWindow)
+func (s *SQLiteLocationProvider) FindBestMatch(ctx context.Context, targetTime time.Time, priorityDevices []string) (database.LocationEntry, error) {
+	entries, err := s.repo.FindClosest(ctx, targetTime, s.searchWindow)
 	if err != nil {
 		return database.LocationEntry{}, err
 	}

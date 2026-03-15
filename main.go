@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -21,7 +22,7 @@ func printDatabase(dbPath string) {
 	}
 	defer repo.Close()
 
-	entries, err := repo.GetAll()
+	entries, err := repo.GetAll(context.Background())
 	if err != nil {
 		fmt.Printf("Error fetching entries: %v\n", err)
 		os.Exit(1)

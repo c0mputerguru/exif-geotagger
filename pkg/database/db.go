@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"time"
@@ -68,12 +69,12 @@ func initSchema(db *sql.DB) error {
 	return err
 }
 
-func (r *Repository) Insert(entry LocationEntry) error {
+func (r *Repository) Insert(ctx context.Context, entry LocationEntry) error {
 	query := `
 	INSERT OR REPLACE INTO locations (timestamp, latitude, longitude, altitude, city, state, country, device_model)
 	VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 	`
-	_, err := r.db.Exec(query,
+	_, err := r.db.ExecContext(ctx, query,
 		entry.Timestamp,
 		entry.Latitude,
 		entry.Longitude,
@@ -91,7 +92,7 @@ func (r *Repository) Close() error {
 }
 
 // FindClosest returns the closest locations within +/- window of the target time
-func (r *Repository) FindClosest(target time.Time, window time.Duration) ([]LocationEntry, error) {
+func (r *Repository) FindClosest(ctx context.Context, target time.Time, window time.Duration) ([]LocationEntry, error) {
 	start := target.Add(-window)
 	end := target.Add(window)
 
@@ -101,7 +102,7 @@ func (r *Repository) FindClosest(target time.Time, window time.Duration) ([]Loca
 	WHERE timestamp >= ? AND timestamp <= ?
 	ORDER BY ABS(julianday(timestamp) - julianday(?)) ASC
 	`
-	rows, err := r.db.Query(query, start, end, target)
+	rows, err := r.db.QueryContext(ctx, query, start, end, target)
 	if err != nil {
 		return nil, err
 	}
@@ -119,13 +120,13 @@ func (r *Repository) FindClosest(target time.Time, window time.Duration) ([]Loca
 }
 
 // GetAll returns all location entries in the database
-func (r *Repository) GetAll() ([]LocationEntry, error) {
+func (r *Repository) GetAll(ctx context.Context) ([]LocationEntry, error) {
 	query := `
 	SELECT timestamp, latitude, longitude, altitude, city, state, country, device_model
 	FROM locations
 	ORDER BY timestamp ASC
 	`
-	rows, err := r.db.Query(query)
+	rows, err := r.db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}

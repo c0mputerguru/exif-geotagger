@@ -1,6 +1,7 @@
 package matcher
 
 import (
+	"context"
 	"os"
 	"testing"
 	"time"
@@ -44,7 +45,7 @@ func TestFindBestMatch(t *testing.T) {
 	}
 
 	for _, e := range entries {
-		if err := repo.Insert(e); err != nil {
+		if err := repo.Insert(context.Background(), e); err != nil {
 			t.Fatalf("failed to insert: %v", err)
 		}
 	}
