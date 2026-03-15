@@ -163,15 +163,15 @@ func main() {
 			os.Exit(1)
 		}
 
-		var devicesList []string
+		var priorityDevicesList []string
 		if *priorityDevices != "" {
-			devicesList = strings.Split(*priorityDevices, ",")
-			for i, d := range devicesList {
-				devicesList[i] = strings.TrimSpace(d)
+			priorityDevicesList = strings.Split(*priorityDevices, ",")
+			for i, d := range priorityDevicesList {
+				priorityDevicesList[i] = strings.TrimSpace(d)
 			}
 		}
 
-		if err := processor.TagImages(*rawDir, *dbPath, *dryRun, devicesList); err != nil {
+		if err := processor.TagImages(*rawDir, *dbPath, *dryRun, priorityDevicesList); err != nil {
 			fmt.Printf("Error tagging images: %v\n", err)
 			os.Exit(1)
 		}
