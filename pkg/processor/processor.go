@@ -2,12 +2,9 @@ package processor
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"io/fs"
 	"log"
-	"net/http"
 	"path/filepath"
 	"strings"
 	"time"
@@ -25,36 +22,6 @@ var (
 	// RawFileExtensions are extensions for raw camera formats plus JPEG
 	RawFileExtensions = []string{".cr2", ".cr3", ".nef", ".arw", ".dng", ".jpg"}
 )
-
-// haClient is a concrete implementation of homeassistant.Client using HTTP.
-type haClient struct {
-	baseURL string
-	token   string
-	client  *http.Client
-}
-
-func (c *haClient) Get(ctx context.Context, url string) (io.ReadCloser, error) {
-	fullURL := c.baseURL + url
-	req, err := http.NewRequestWithContext(ctx, "GET", fullURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		defer resp.Body.Close()
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read error response: %w", err)
-		}
-		return nil, fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(body))
-	}
-	return resp.Body, nil
-}
 
 // copyLocationEntry creates a new exiftool.Metadata from a database.LocationEntry,
 // performing deep copies of pointer fields to avoid data races when the entry is reused.
@@ -94,30 +61,6 @@ func copyLocationEntry(entry database.LocationEntry) exiftool.Metadata {
 		State:        state,
 		Country:      country,
 	}
-}
-
-func (c *haClient) GetTimezone(ctx context.Context) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/api/config", nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("failed to get timezone: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("unexpected status %d", resp.StatusCode)
-	}
-	var cfg struct {
-		Timezone string `json:"timezone"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&cfg); err != nil {
-		return "", fmt.Errorf("failed to decode config: %w", err)
-	}
-	return cfg.Timezone, nil
 }
 
 // DiscoverDevices scans the input directory for images with GPS metadata and returns
