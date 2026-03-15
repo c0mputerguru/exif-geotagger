@@ -13,6 +13,28 @@ import (
 	"github.com/abpatel/exif-geotagger/pkg/processor"
 )
 
+func printDatabase(dbPath string) {
+	repo, err := database.Connect(dbPath)
+	if err != nil {
+		fmt.Printf("Error connecting to database: %v\n", err)
+		os.Exit(1)
+	}
+	defer repo.Close()
+
+	entries, err := repo.GetAll()
+	if err != nil {
+		fmt.Printf("Error fetching entries: %v\n", err)
+		os.Exit(1)
+	}
+
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(entries); err != nil {
+		fmt.Printf("Error encoding JSON: %v\n", err)
+		os.Exit(1)
+	}
+}
+
 func main() {
 	if len(os.Args) < 2 {
 		printUsage()
@@ -124,25 +146,7 @@ func main() {
 
 		printDbCmd.Parse(os.Args[2:])
 
-		repo, err := database.Connect(*dbPath)
-		if err != nil {
-			fmt.Printf("Error connecting to database: %v\n", err)
-			os.Exit(1)
-		}
-		defer repo.Close()
-
-		entries, err := repo.GetAll()
-		if err != nil {
-			fmt.Printf("Error fetching entries: %v\n", err)
-			os.Exit(1)
-		}
-
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		if err := enc.Encode(entries); err != nil {
-			fmt.Printf("Error encoding JSON: %v\n", err)
-			os.Exit(1)
-		}
+		printDatabase(*dbPath)
 
 	case "tag-images":
 		tagImagesCmd := flag.NewFlagSet("tag-images", flag.ExitOnError)
