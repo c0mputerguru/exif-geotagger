@@ -268,7 +268,7 @@ func BuildDBHA(outputDB, url, token, devices, startStr, endStr string, days int,
 		}
 	} else if all {
 		// Discover all devices automatically without prompting
-		trackers, err := homeassistant.DiscoverDeviceTrackers(ctx, url, token)
+		trackers, err := homeassistant.DiscoverDeviceTrackers(ctx, url, token, nil)
 		if err != nil {
 			return fmt.Errorf("failed to discover device trackers: %w", err)
 		}
@@ -282,7 +282,7 @@ func BuildDBHA(outputDB, url, token, devices, startStr, endStr string, days int,
 		}
 	} else {
 		// Discover devices interactively
-		trackers, err := homeassistant.DiscoverDeviceTrackers(ctx, url, token)
+		trackers, err := homeassistant.DiscoverDeviceTrackers(ctx, url, token, nil)
 		if err != nil {
 			return fmt.Errorf("failed to discover device trackers: %w", err)
 		}
