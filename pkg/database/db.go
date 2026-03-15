@@ -58,15 +58,8 @@ func initSchema(db *sql.DB) error {
 
 func (r *Repository) Insert(entry LocationEntry) error {
 	query := `
-	INSERT INTO locations (timestamp, latitude, longitude, altitude, city, state, country, device_model)
+	INSERT OR REPLACE INTO locations (timestamp, latitude, longitude, altitude, city, state, country, device_model)
 	VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-	ON CONFLICT(timestamp, device_model) DO UPDATE SET
-		latitude=excluded.latitude,
-		longitude=excluded.longitude,
-		altitude=excluded.altitude,
-		city=excluded.city,
-		state=excluded.state,
-		country=excluded.country;
 	`
 	_, err := r.db.Exec(query,
 		entry.Timestamp,
