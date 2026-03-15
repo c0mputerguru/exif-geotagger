@@ -41,8 +41,11 @@ func (c *haClient) Get(ctx context.Context, url string) (io.ReadCloser, error) {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read error response: %w", err)
+		}
 		return nil, fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(body))
 	}
 	return resp.Body, nil
