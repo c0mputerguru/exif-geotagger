@@ -1,7 +1,6 @@
 package processor
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -9,9 +8,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
-	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -289,43 +286,9 @@ func BuildDBHA(outputDB, url, token, devices, startStr, endStr string, days int,
 		if len(trackers) == 0 {
 			return fmt.Errorf("no device_tracker entities found")
 		}
-		fmt.Println("Discovered device_tracker entities:")
-		for i, t := range trackers {
-			name := t.FriendlyName
-			if name == "" {
-				name = t.EntityID
-			}
-			lastSeen := t.LastSeen
-			if lastSeen != "" {
-				lastSeen = " (last seen: " + lastSeen + ")"
-			}
-			fmt.Printf("%d. %s%s (%s)\n", i+1, name, lastSeen, t.EntityID)
-		}
-		fmt.Print("Enter numbers (comma-separated) to include: ")
-		scanner := bufio.NewScanner(os.Stdin)
-		if !scanner.Scan() {
-			return fmt.Errorf("failed to read selection")
-		}
-		input := scanner.Text()
-		if strings.TrimSpace(input) == "" {
-			return fmt.Errorf("no devices selected")
-		}
-		idxStrs := strings.Split(input, ",")
-		selected := []string{}
-		for _, idxStr := range idxStrs {
-			idxStr = strings.TrimSpace(idxStr)
-			if idxStr == "" {
-				continue
-			}
-			idx, err := strconv.Atoi(idxStr)
-			if err != nil || idx < 1 || idx > len(trackers) {
-				fmt.Fprintf(os.Stderr, "Invalid selection: %s\n", idxStr)
-				continue
-			}
-			selected = append(selected, trackers[idx-1].EntityID)
-		}
-		if len(selected) == 0 {
-			return fmt.Errorf("no valid devices selected")
+		selected, err := homeassistant.SelectDeviceTrackersInteractive(trackers)
+		if err != nil {
+			return fmt.Errorf("failed to select devices: %w", err)
 		}
 		entityIDs = selected
 	}
