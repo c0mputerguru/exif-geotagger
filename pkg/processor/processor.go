@@ -196,7 +196,7 @@ func BuildDB(inputDir string, outputDB string, filterModels []string) error {
 }
 
 // BuildDBHA builds a location database from Home Assistant.
-func BuildDBHA(outputDB, url, token, devices, startStr, endStr string, days int) error {
+func BuildDBHA(outputDB, url, token, devices, startStr, endStr string, days int, all bool) error {
 	// Trim trailing slash if present
 	url = strings.TrimSuffix(url, "/")
 
@@ -211,6 +211,20 @@ func BuildDBHA(outputDB, url, token, devices, startStr, endStr string, days int)
 		}
 		if len(entityIDs) == 0 {
 			return fmt.Errorf("no valid entity IDs provided")
+		}
+	} else if all {
+		// Discover all devices automatically without prompting
+		trackers, err := homeassistant.DiscoverDeviceTrackers(url, token)
+		if err != nil {
+			return fmt.Errorf("failed to discover device trackers: %w", err)
+		}
+		if len(trackers) == 0 {
+			return fmt.Errorf("no device_tracker entities found")
+		}
+		fmt.Printf("Discovering all %d device_tracker entities...\n", len(trackers))
+		entityIDs = make([]string, len(trackers))
+		for i, t := range trackers {
+			entityIDs[i] = t.EntityID
 		}
 	} else {
 		// Discover devices interactively
