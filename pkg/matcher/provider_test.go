@@ -87,7 +87,7 @@ func TestFindBestMatch(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			match, err := provider.FindBestMatch(tc.targetTime, tc.priorities)
+			match, err := provider.FindBestMatch(context.Background(), tc.targetTime, tc.priorities)
 			if tc.expectedError {
 				if err == nil {
 					t.Errorf("expected error, got none")

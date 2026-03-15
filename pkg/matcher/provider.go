@@ -23,7 +23,7 @@ const DefaultPriorityMultiplier = 5.0
 
 // LocationProvider defines how to fetch the best location match.
 type LocationProvider interface {
-	FindBestMatch(targetTime time.Time, priorityDevices []string) (database.LocationEntry, error)
+	FindBestMatch(ctx context.Context, targetTime time.Time, priorityDevices []string) (database.LocationEntry, error)
 }
 
 type SQLiteLocationProvider struct {
