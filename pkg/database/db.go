@@ -20,10 +20,10 @@ type LocationEntry struct {
 }
 
 // scanLocationEntry scans a single row into a Location struct.
-func scanLocationEntry(rows *sql.Rows) (LocationEntry, error) {
+func scanLocationEntry(row *sql.Rows) (LocationEntry, error) {
 	var e LocationEntry
 	var ts time.Time
-	err := rows.Scan(&ts, &e.Latitude, &e.Longitude, &e.Altitude, &e.City, &e.State, &e.Country, &e.DeviceModel)
+	err := row.Scan(&ts, &e.Latitude, &e.Longitude, &e.Altitude, &e.City, &e.State, &e.Country, &e.DeviceModel)
 	if err != nil {
 		return LocationEntry{}, err
 	}
