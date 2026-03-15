@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -63,7 +64,8 @@ type Metadata struct {
 
 // GetTimestamp tries to parse the best available timestamp.
 // It first attempts RFC3339 parsing directly, then falls back to normalizing
-// EXIF-style formats ("YYYY:MM:DD HH:MM:SS" variations) into RFC3339.
+// EXIF-style formats ("YYYY:MM:DD HH:MM:SS[.fff][Z±HH:MM]") into RFC3339 or
+// a simpler layout, handling milliseconds manually.
 func (m *Metadata) GetTimestamp() (time.Time, error) {
 	candidates := []*string{
 		m.GPSDateTime,            // e.g., "2025:07:18 10:15:23Z" or RFC3339
@@ -83,15 +85,46 @@ func (m *Metadata) GetTimestamp() (time.Time, error) {
 			}
 			// Check if it's an EXIF format: contains ":" in date part and " " separator
 			if strings.Contains(s, ":") && strings.Contains(s, " ") {
-				// Normalize EXIF to RFC3339: replace colons in date part with dashes, space with 'T'
+				// Split date and time parts at the first space
 				parts := strings.SplitN(s, " ", 2)
-				if len(parts) == 2 {
-					datePart := strings.ReplaceAll(parts[0], ":", "-")
-					timePart := parts[1]
-					normalized := datePart + "T" + timePart
-					if t, err := time.ParseInLocation(time.RFC3339, normalized, time.Local); err == nil {
-						return t, nil
+				if len(parts) != 2 {
+					continue
+				}
+				datePart := strings.ReplaceAll(parts[0], ":", "-")
+				timePart := parts[1]
+
+				// Extract milliseconds if present (before any timezone)
+				var ms int
+				if dotIdx := strings.Index(timePart, "."); dotIdx != -1 {
+					// Take digits immediately following the dot
+					frac := timePart[dotIdx+1:]
+					i := 0
+					for i < len(frac) && frac[i] >= '0' && frac[i] <= '9' {
+						i++
 					}
+					if i > 0 {
+						ms, _ = strconv.Atoi(frac[:i])
+						// Remove fractional part (dot and digits) from timePart
+						timePart = timePart[:dotIdx] + timePart[dotIdx+1+i:]
+					}
+				}
+
+				// Build a normalized string using 'T' separator
+				normalized := datePart + "T" + timePart
+
+				// Try parsing with timezone (RFC3339)
+				if t, err := time.ParseInLocation(time.RFC3339, normalized, time.Local); err == nil {
+					if ms > 0 {
+						t = t.Add(time.Duration(ms) * time.Millisecond)
+					}
+					return t, nil
+				}
+				// Try parsing without timezone
+				if t, err := time.ParseInLocation("2006-01-02T15:04:05", normalized, time.Local); err == nil {
+					if ms > 0 {
+						t = t.Add(time.Duration(ms) * time.Millisecond)
+					}
+					return t, nil
 				}
 			}
 		}
