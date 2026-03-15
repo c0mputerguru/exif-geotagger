@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"strings"
 	"time"
 
@@ -39,10 +40,15 @@ func FetchLocationHistory(ctx context.Context, client Client, start, end time.Ti
 	// Build URL with query parameters
 	// HA API: GET /api/history/period/{start}/{end}?filter_entity_id=id1,id2,...
 	// Times should be in ISO8601 format with timezone (use time.RFC3339)
+	// Escape each entity ID to handle special characters
+	escapedIDs := make([]string, len(entityIDs))
+	for i, id := range entityIDs {
+		escapedIDs[i] = url.QueryEscape(id)
+	}
 	url := fmt.Sprintf("/api/history/period/%s/%s?filter_entity_id=%s",
 		start.Format(time.RFC3339),
 		end.Format(time.RFC3339),
-		strings.Join(entityIDs, ","))
+		strings.Join(escapedIDs, ","))
 
 	body, err := client.Get(ctx, url)
 	if err != nil {
