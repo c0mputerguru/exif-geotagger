@@ -97,6 +97,8 @@ func SelectDeviceTrackersInteractive(trackers []DeviceTracker) ([]string, error)
 	if len(trackers) == 0 {
 		return nil, fmt.Errorf("no device trackers provided")
 	}
+
+	// UI: Display the list
 	fmt.Println("Discovered device_tracker entities:")
 	for i, t := range trackers {
 		name := t.FriendlyName
@@ -109,6 +111,8 @@ func SelectDeviceTrackersInteractive(trackers []DeviceTracker) ([]string, error)
 		}
 		fmt.Printf("%d. %s%s (%s)\n", i+1, name, lastSeen, t.EntityID)
 	}
+
+	// UI: Prompt and read input
 	fmt.Print("Enter numbers (comma-separated) to include: ")
 	scanner := bufio.NewScanner(os.Stdin)
 	if !scanner.Scan() {
@@ -118,8 +122,10 @@ func SelectDeviceTrackersInteractive(trackers []DeviceTracker) ([]string, error)
 	if strings.TrimSpace(input) == "" {
 		return nil, fmt.Errorf("no devices selected")
 	}
+
+	// Parse input into indices, validating each
 	idxStrs := strings.Split(input, ",")
-	selected := []string{}
+	indices := make([]int, 0, len(idxStrs))
 	for _, idxStr := range idxStrs {
 		idxStr = strings.TrimSpace(idxStr)
 		if idxStr == "" {
@@ -127,10 +133,27 @@ func SelectDeviceTrackersInteractive(trackers []DeviceTracker) ([]string, error)
 		}
 		idx, err := strconv.Atoi(idxStr)
 		if err != nil || idx < 1 || idx > len(trackers) {
+			// UI: report invalid selection
 			fmt.Fprintf(os.Stderr, "Invalid selection: %s\n", idxStr)
 			continue
 		}
-		selected = append(selected, trackers[idx-1].EntityID)
+		indices = append(indices, idx)
+	}
+
+	// Pure selection logic
+	return selectDeviceTrackersByIndices(trackers, indices)
+}
+
+// selectDeviceTrackersByIndices is a pure function that returns the entity IDs
+// for the given 1-based indices. It performs no I/O. If no valid selections remain,
+// it returns an error.
+func selectDeviceTrackersByIndices(trackers []DeviceTracker, indices []int) ([]string, error) {
+	selected := make([]string, 0, len(indices))
+	for _, idx := range indices {
+		// indices are guaranteed to be in range by caller, but check anyway
+		if idx >= 1 && idx <= len(trackers) {
+			selected = append(selected, trackers[idx-1].EntityID)
+		}
 	}
 	if len(selected) == 0 {
 		return nil, fmt.Errorf("no valid devices selected")
