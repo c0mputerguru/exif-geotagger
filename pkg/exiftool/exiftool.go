@@ -95,7 +95,7 @@ func (m *Metadata) GetTimestamp() (time.Time, error) {
 				exifLayout,         // Basic EXIF format without timezone or milliseconds
 			}
 			for _, f := range formats {
-				t, err := time.ParseInLocation(f, s, time.Local)
+				t, err := time.ParseInLocation(f, s, time.UTC)
 				if err == nil {
 					return t, nil
 				}

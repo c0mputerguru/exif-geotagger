@@ -91,9 +91,9 @@ func TestGetTimestamp(t *testing.T) {
 		isErr    bool
 	}{
 		{
-			// typical exiftool format
+			// typical exiftool format (naive, should be interpreted as UTC)
 			m:        Metadata{DateTimeOriginal: stringPtr("2023:10:01 12:00:00")},
-			expected: time.Date(2023, 10, 1, 12, 0, 0, 0, time.Local),
+			expected: time.Date(2023, 10, 1, 12, 0, 0, 0, time.UTC),
 			isErr:    false,
 		},
 		{
