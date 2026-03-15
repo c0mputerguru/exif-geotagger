@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/url"
 	"strings"
 	"time"
@@ -95,9 +96,9 @@ func FetchLocationHistory(ctx context.Context, client Client, start, end time.Ti
 		totalSkipped += count
 	}
 	if totalSkipped > 0 {
-		fmt.Printf("Skipped %d location entries:\n", totalSkipped)
+		log.Printf("Skipped %d location entries:", totalSkipped)
 		for reason, count := range skipCounts {
-			fmt.Printf("  - %s: %d\n", reason, count)
+			log.Printf("  - %s: %d", reason, count)
 		}
 	}
 
