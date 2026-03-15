@@ -132,17 +132,17 @@ func parseLocationFromState(state HAState) (lat, lon float64, alt *float64, ts t
 	}
 
 	// Optional: altitude
-	if altVal, ok := attrs["gps_accuracy"]; ok {
+	// Prefer gps_altitude (GPS altitude) over generic altitude
+	if altVal, ok := attrs["gps_altitude"]; ok {
 		if altFloat, ok := altVal.(float64); ok {
-			// gps_accuracy is usually horizontal accuracy, not altitude
-			// But we'll store it as altitude if no better option
-			// In HA, altitude might be in "altitude" attribute
 			alt = &altFloat
 		}
 	}
-	if altVal, ok := attrs["altitude"]; ok {
-		if altFloat, ok := altVal.(float64); ok {
-			alt = &altFloat
+	if alt == nil {
+		if altVal, ok := attrs["altitude"]; ok {
+			if altFloat, ok := altVal.(float64); ok {
+				alt = &altFloat
+			}
 		}
 	}
 
