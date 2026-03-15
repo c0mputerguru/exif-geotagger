@@ -31,11 +31,12 @@ type StateResponse struct {
 // Parameters:
 //   - haURL: Home Assistant base URL (e.g., "http://homeassistant:8123")
 //   - haToken: Long-lived access token for authentication
+//   - client: Optional HTTP client. If nil, a default client with 30s timeout is used.
 //
 // Returns:
 //   - []DeviceTracker: list of discovered device trackers
 //   - error: network or decoding errors
-func DiscoverDeviceTrackers(ctx context.Context, haURL, haToken string) ([]DeviceTracker, error) {
+func DiscoverDeviceTrackers(ctx context.Context, haURL, haToken string, client *http.Client) ([]DeviceTracker, error) {
 	if strings.HasSuffix(haURL, "/") {
 		haURL = strings.TrimSuffix(haURL, "/")
 	}
@@ -49,7 +50,9 @@ func DiscoverDeviceTrackers(ctx context.Context, haURL, haToken string) ([]Devic
 	req.Header.Set("Authorization", "Bearer "+haToken)
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	if client == nil {
+		client = &http.Client{Timeout: 30 * time.Second}
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query Home Assistant: %w", err)
