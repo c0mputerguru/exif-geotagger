@@ -21,6 +21,14 @@ import (
 	"github.com/abpatel/exif-geotagger/pkg/matcher"
 )
 
+// Supported file extensions
+var (
+	// ImageFileExtensions are extensions for standard images (JPG, JPEG, HEIC, PNG)
+	ImageFileExtensions = []string{".jpg", ".jpeg", ".heic", ".png"}
+	// RawFileExtensions are extensions for raw camera formats plus JPEG
+	RawFileExtensions = []string{".cr2", ".cr3", ".nef", ".arw", ".dng", ".jpg"}
+)
+
 // haClient is a concrete implementation of homeassistant.Client using HTTP.
 type haClient struct {
 	baseURL string
@@ -88,7 +96,14 @@ func DiscoverDevices(inputDir string) (map[string]time.Time, error) {
 			return nil
 		}
 		ext := strings.ToLower(filepath.Ext(path))
-		if ext != ".jpg" && ext != ".jpeg" && ext != ".heic" && ext != ".png" {
+		found := false
+		for _, validExt := range ImageFileExtensions {
+			if ext == validExt {
+				found = true
+				break
+			}
+		}
+		if !found {
 			return nil
 		}
 		meta, err := exiftool.ReadMetadata(path)
@@ -143,7 +158,14 @@ func BuildDB(inputDir string, outputDB string, filterModels []string) error {
 			return nil
 		}
 		ext := strings.ToLower(filepath.Ext(path))
-		if ext != ".jpg" && ext != ".jpeg" && ext != ".heic" && ext != ".png" {
+		found := false
+		for _, validExt := range ImageFileExtensions {
+			if ext == validExt {
+				found = true
+				break
+			}
+		}
+		if !found {
 			return nil
 		}
 		meta, err := exiftool.ReadMetadata(path)
@@ -356,7 +378,14 @@ func TagImages(rawDir string, dbPath string, dryRun bool, priorityDevices []stri
 
 		ext := strings.ToLower(filepath.Ext(path))
 		// Support typical raw formats: .CR2, .CR3, .NEF, .ARW, .DNG, etc.
-		if ext != ".cr2" && ext != ".cr3" && ext != ".nef" && ext != ".arw" && ext != ".dng" && ext != ".jpg" {
+		found := false
+		for _, validExt := range RawFileExtensions {
+			if ext == validExt {
+				found = true
+				break
+			}
+		}
+		if !found {
 			return nil
 		}
 
