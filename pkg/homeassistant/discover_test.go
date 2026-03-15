@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 )
 
@@ -340,5 +341,97 @@ func BenchmarkDiscoverDeviceTrackers(b *testing.B) {
 		if err != nil {
 			b.Fatalf("unexpected error: %v", err)
 		}
+	}
+}
+
+func TestSelectDeviceTrackersByIndices(t *testing.T) {
+	trackers := []DeviceTracker{
+		{EntityID: "device_tracker.iphone", FriendlyName: "iPhone"},
+		{EntityID: "device_tracker.pixel", FriendlyName: "Pixel"},
+		{EntityID: "device_tracker.samsung", FriendlyName: ""},
+	}
+
+	tests := []struct {
+		name        string
+		indices     []int
+		expected    []string
+		expectError bool
+	}{
+		{
+			name:        "single valid index",
+			indices:     []int{1},
+			expected:    []string{"device_tracker.iphone"},
+			expectError: false,
+		},
+		{
+			name:        "multiple valid indices",
+			indices:     []int{1, 3},
+			expected:    []string{"device_tracker.iphone", "device_tracker.samsung"},
+			expectError: false,
+		},
+		{
+			name:        "all valid indices",
+			indices:     []int{1, 2, 3},
+			expected:    []string{"device_tracker.iphone", "device_tracker.pixel", "device_tracker.samsung"},
+			expectError: false,
+		},
+		{
+			name:        "no valid indices (all out of range)",
+			indices:     []int{4, 5},
+			expected:    []string{},
+			expectError: true,
+		},
+		{
+			name:        "mixed valid and invalid indices",
+			indices:     []int{1, 0, 5, 2},
+			expected:    []string{"device_tracker.iphone", "device_tracker.pixel"},
+			expectError: false,
+		},
+		{
+			name:        "empty indices",
+			indices:     []int{},
+			expected:    []string{},
+			expectError: true,
+		},
+		{
+			name:        "indices with duplicates",
+			indices:     []int{1, 1, 2},
+			expected:    []string{"device_tracker.iphone", "device_tracker.iphone", "device_tracker.pixel"},
+			expectError: false,
+		},
+		{
+			name:        "negative indices (only invalid)",
+			indices:     []int{-1, -2},
+			expected:    []string{},
+			expectError: true,
+		},
+		{
+			name:        "negative index with valid",
+			indices:     []int{-1, 2},
+			expected:    []string{"device_tracker.pixel"},
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := selectDeviceTrackersByIndices(trackers, tt.indices)
+			if tt.expectError {
+				if err == nil {
+					t.Fatalf("expected error but got none")
+				}
+				// Even when error is expected, still check that valid selections were returned
+				if len(result) != len(tt.expected) {
+					t.Errorf("expected %d results, got %d", len(tt.expected), len(result))
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				if !reflect.DeepEqual(result, tt.expected) {
+					t.Errorf("expected %v, got %v", tt.expected, result)
+				}
+			}
+		})
 	}
 }
