@@ -3,7 +3,6 @@ package homeassistant
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -57,8 +56,7 @@ func DiscoverDeviceTrackers(haURL, haToken string) ([]DeviceTracker, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(bodyBytes))
+		return nil, fmt.Errorf("unexpected status %d", resp.StatusCode)
 	}
 
 	var states []StateResponse
