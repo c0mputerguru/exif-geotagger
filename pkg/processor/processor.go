@@ -388,14 +388,37 @@ func TagImages(rawDir string, dbPath string, dryRun bool, priorityDevices []stri
 			return nil
 		}
 
-		// Prepare new metadata block
+		// Copy values from match to avoid data race (loop variable reuse)
+		lat := match.Latitude
+		lon := match.Longitude
+		var alt *float64
+		if match.Altitude != nil {
+			a := *match.Altitude
+			alt = &a
+		}
+		var city *string
+		if match.City != nil {
+			c := *match.City
+			city = &c
+		}
+		var state *string
+		if match.State != nil {
+			s := *match.State
+			state = &s
+		}
+		var country *string
+		if match.Country != nil {
+			co := *match.Country
+			country = &co
+		}
+
 		newMeta := exiftool.Metadata{
-			GPSLatitude:  &match.Latitude,
-			GPSLongitude: &match.Longitude,
-			GPSAltitude:  match.Altitude,
-			City:         match.City,
-			State:        match.State,
-			Country:      match.Country,
+			GPSLatitude:  &lat,
+			GPSLongitude: &lon,
+			GPSAltitude:  alt,
+			City:         city,
+			State:        state,
+			Country:      country,
 		}
 
 		if err := exiftool.WriteMetadata(path, newMeta, dryRun); err != nil {
