@@ -62,42 +62,36 @@ type Metadata struct {
 }
 
 // GetTimestamp tries to parse the best available timestamp.
+// It first attempts RFC3339 parsing directly, then falls back to normalizing
+// EXIF-style formats ("YYYY:MM:DD HH:MM:SS" variations) into RFC3339.
 func (m *Metadata) GetTimestamp() (time.Time, error) {
 	candidates := []*string{
-		m.GPSDateTime,            // "2025:07:18 10:15:23Z"
-		m.SubSecDateTimeOriginal, // "2025:07:18 12:15:50.633+02:00"
+		m.GPSDateTime,            // e.g., "2025:07:18 10:15:23Z" or RFC3339
+		m.SubSecDateTimeOriginal, // e.g., "2025:07:18 12:15:50.633+02:00"
 		m.SubSecCreateDate,
 		m.SubSecModifyDate,
-		m.DateTimeOriginal, // "2025:07:18 12:15:50" (no TZ)
+		m.DateTimeOriginal, // e.g., "2025:07:18 12:15:50"
 		m.CreateDate,
 		m.FileModifyDate,
 	}
 	for _, c := range candidates {
 		if c != nil && *c != "" {
-			// Typical EXIF time format is "YYYY:MM:DD HH:MM:SS" or with timezone
-			// Let's first strip timezone if any for simplicity or handle it if reliable.
-			// Format returned by `-n` flag in exiftool is usually standard
 			s := *c
-			// If contains timezone like "-07:00" or "Z", handle it, else assume local
-			// Use layout constants for clarity and maintainability.
-			// "Z07:00" matches both "Z" and numeric offsets like "+07:00" or "-07:00".
-			const (
-				exifTZLayout       = "2006:01:02 15:04:05Z07:00"
-				exifTZWithMsLayout = "2006:01:02 15:04:05.999Z07:00"
-				exifLayout         = "2006:01:02 15:04:05"
-				exifWithMsLayout   = "2006:01:02 15:04:05.999"
-			)
-			formats := []string{
-				time.RFC3339,       // canonical RFC3339 format (e.g., "2006-01-02T15:04:05Z07:00")
-				exifTZWithMsLayout, // EXIF with timezone and milliseconds
-				exifTZLayout,       // EXIF with timezone (no milliseconds)
-				exifWithMsLayout,   // EXIF with milliseconds (no timezone)
-				exifLayout,         // Basic EXIF format without timezone or milliseconds
+			// Try direct RFC3339 parse first (covers ISO8601 and already-normalized strings)
+			if t, err := time.ParseInLocation(time.RFC3339, s, time.Local); err == nil {
+				return t, nil
 			}
-			for _, f := range formats {
-				t, err := time.ParseInLocation(f, s, time.UTC)
-				if err == nil {
-					return t, nil
+			// Check if it's an EXIF format: contains ":" in date part and " " separator
+			if strings.Contains(s, ":") && strings.Contains(s, " ") {
+				// Normalize EXIF to RFC3339: replace colons in date part with dashes, space with 'T'
+				parts := strings.SplitN(s, " ", 2)
+				if len(parts) == 2 {
+					datePart := strings.ReplaceAll(parts[0], ":", "-")
+					timePart := parts[1]
+					normalized := datePart + "T" + timePart
+					if t, err := time.ParseInLocation(time.RFC3339, normalized, time.Local); err == nil {
+						return t, nil
+					}
 				}
 			}
 		}
