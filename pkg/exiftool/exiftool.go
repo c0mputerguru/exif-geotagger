@@ -79,14 +79,20 @@ func (m *Metadata) GetTimestamp() (time.Time, error) {
 			// Format returned by `-n` flag in exiftool is usually standard
 			s := *c
 			// If contains timezone like "-07:00" or "Z", handle it, else assume local
+			// Use layout constants for clarity and maintainability.
+			// "Z07:00" matches both "Z" and numeric offsets like "+07:00" or "-07:00".
+			const (
+				exifTZLayout       = "2006:01:02 15:04:05Z07:00"
+				exifTZWithMsLayout = "2006:01:02 15:04:05.999Z07:00"
+				exifLayout         = "2006:01:02 15:04:05"
+				exifWithMsLayout   = "2006:01:02 15:04:05.999"
+			)
 			formats := []string{
-				"2006:01:02 15:04:05.999Z07:00",
-				"2006:01:02 15:04:05Z07:00",
-				"2006:01:02 15:04:05.999-07:00",
-				"2006:01:02 15:04:05-07:00",
-				"2006:01:02 15:04:05.999",
-				"2006:01:02 15:04:05",
-				time.RFC3339,
+				time.RFC3339,       // canonical RFC3339 format (e.g., "2006-01-02T15:04:05Z07:00")
+				exifTZWithMsLayout, // EXIF with timezone and milliseconds
+				exifTZLayout,       // EXIF with timezone (no milliseconds)
+				exifWithMsLayout,   // EXIF with milliseconds (no timezone)
+				exifLayout,         // Basic EXIF format without timezone or milliseconds
 			}
 			for _, f := range formats {
 				t, err := time.ParseInLocation(f, s, time.Local)
