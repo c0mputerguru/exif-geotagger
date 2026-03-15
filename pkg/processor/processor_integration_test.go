@@ -133,11 +133,10 @@ func TestEndToEnd_HAtoTagImages(t *testing.T) {
 
 	// 2. Create a raw image with a timestamp that matches one of the HA entries
 	// We want the image timestamp to match the first HA entry (12:00 UTC).
-	// Since EXIF DateTimeOriginal records local time (no timezone), we need to convert
-	// the desired UTC time to the machine's local time for correct EXIF writing.
-	imgTimeUTC := time.Date(2023, 10, 1, 12, 0, 0, 0, time.UTC)
-	localImgTime := imgTimeUTC.In(time.Local)
-	rawImg := createRawImage(t, rawDir, "photo.jpg", localImgTime)
+	// GetTimestamp now interprets naive EXIF timestamps as UTC (not local).
+	// So we write the timestamp directly as UTC.
+	imgTime := time.Date(2023, 10, 1, 12, 0, 0, 0, time.UTC)
+	rawImg := createRawImage(t, rawDir, "photo.jpg", imgTime)
 
 	// 3. Run tag-images
 	err = TagImages(rawDir, dbPath, false, nil)
