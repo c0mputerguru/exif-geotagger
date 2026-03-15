@@ -245,9 +245,9 @@ func TestParseLocationFromState_variousTypes(t *testing.T) {
 		{
 			name:      "latitude as string",
 			attrsJSON: `{"latitude":"37.7749","longitude":"-122.4194"}`,
-			wantLat:   37.7749,
-			wantLon:   -122.4194,
-			wantErr:   false,
+			wantLat:   0,
+			wantLon:   0,
+			wantErr:   true,
 		},
 	}
 

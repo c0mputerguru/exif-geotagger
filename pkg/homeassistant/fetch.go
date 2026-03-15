@@ -176,27 +176,19 @@ func parseLocationFromState(state HAState) (lat, lon float64, alt *float64, ts t
 	return lat, lon, alt, ts, nil
 }
 
-// convertToFloat64 attempts to convert various numeric types to float64.
+// convertToFloat64 converts numeric types to float64.
+// Handles likely types from JSON: float64, int, int64, json.Number.
+// Returns error for unsupported types (e.g., float32, string).
 func convertToFloat64(v interface{}) (float64, error) {
 	switch n := v.(type) {
 	case float64:
 		return n, nil
-	case float32:
-		return float64(n), nil
 	case int:
 		return float64(n), nil
 	case int64:
 		return float64(n), nil
 	case json.Number:
 		return n.Float64()
-	case string:
-		// Try parsing string as float
-		var f float64
-		_, err := fmt.Sscanf(n, "%f", &f)
-		if err != nil {
-			return 0, fmt.Errorf("cannot parse string as float: %w", err)
-		}
-		return f, nil
 	default:
 		return 0, fmt.Errorf("unable to convert %T to float64", v)
 	}
