@@ -8,13 +8,25 @@ import (
 	"github.com/abpatel/exif-geotagger/pkg/database"
 )
 
+// DefaultSearchWindow is the default time window to search for location matches.
+// 12 hours is a reasonable window for geotagging photos taken over a half-day period.
+const DefaultSearchWindow = 12 * time.Hour
+
+// DefaultTimeThreshold is the maximum acceptable time difference for a match.
+// 6 hours ensures we don't match locations that are too far apart in time.
+const DefaultTimeThreshold = 6 * time.Hour
+
+// DefaultPriorityMultiplier is the score multiplier applied to priority devices.
+// A factor of 5.0 gives a 5x boost to the base score for priority devices.
+const DefaultPriorityMultiplier = 5.0
+
 // LocationProvider defines how to fetch the best location match.
 type LocationProvider interface {
 	FindBestMatch(targetTime time.Time, priorityDevices []string) (database.LocationEntry, error)
 }
 
 type SQLiteLocationProvider struct {
-	repo          *database.Repository
+	repo               *database.Repository
 	searchWindow       time.Duration
 	timeThreshold      time.Duration // Max acceptable time difference
 	priorityMultiplier float64
@@ -30,9 +42,9 @@ type ProviderOptions struct {
 // DefaultProviderOptions returns the default settings
 func DefaultProviderOptions() ProviderOptions {
 	return ProviderOptions{
-		SearchWindow:       12 * time.Hour,
-		TimeThreshold:      6 * time.Hour,
-		PriorityMultiplier: 5.0, // 5x score boost for priority devices
+		SearchWindow:       DefaultSearchWindow,
+		TimeThreshold:      DefaultTimeThreshold,
+		PriorityMultiplier: DefaultPriorityMultiplier,
 	}
 }
 
