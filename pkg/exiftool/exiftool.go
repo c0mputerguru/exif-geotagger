@@ -80,7 +80,7 @@ func (m *Metadata) GetTimestamp() (time.Time, error) {
 		if c != nil && *c != "" {
 			s := *c
 			// Try direct RFC3339 parse first (covers ISO8601 and already-normalized strings)
-			if t, err := time.ParseInLocation(time.RFC3339, s, time.Local); err == nil {
+			if t, err := time.ParseInLocation(time.RFC3339, s, time.UTC); err == nil {
 				return t, nil
 			}
 			// Check if it's an EXIF format: contains ":" in date part and " " separator
@@ -113,14 +113,14 @@ func (m *Metadata) GetTimestamp() (time.Time, error) {
 				normalized := datePart + "T" + timePart
 
 				// Try parsing with timezone (RFC3339)
-				if t, err := time.ParseInLocation(time.RFC3339, normalized, time.Local); err == nil {
+				if t, err := time.ParseInLocation(time.RFC3339, normalized, time.UTC); err == nil {
 					if ms > 0 {
 						t = t.Add(time.Duration(ms) * time.Millisecond)
 					}
 					return t, nil
 				}
 				// Try parsing without timezone
-				if t, err := time.ParseInLocation("2006-01-02T15:04:05", normalized, time.Local); err == nil {
+				if t, err := time.ParseInLocation("2006-01-02T15:04:05", normalized, time.UTC); err == nil {
 					if ms > 0 {
 						t = t.Add(time.Duration(ms) * time.Millisecond)
 					}
