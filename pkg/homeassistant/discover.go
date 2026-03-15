@@ -1,6 +1,7 @@
 package homeassistant
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -34,13 +35,13 @@ type StateResponse struct {
 // Returns:
 //   - []DeviceTracker: list of discovered device trackers
 //   - error: network or decoding errors
-func DiscoverDeviceTrackers(haURL, haToken string) ([]DeviceTracker, error) {
+func DiscoverDeviceTrackers(ctx context.Context, haURL, haToken string) ([]DeviceTracker, error) {
 	if strings.HasSuffix(haURL, "/") {
 		haURL = strings.TrimSuffix(haURL, "/")
 	}
 	url := fmt.Sprintf("%s/api/states", haURL)
 
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}

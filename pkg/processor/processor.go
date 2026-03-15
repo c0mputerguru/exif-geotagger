@@ -151,6 +151,9 @@ func BuildDB(inputDir string, outputDB string, filterModels []string) error {
 
 // BuildDBHA builds a location database from Home Assistant.
 func BuildDBHA(outputDB, url, token, devices, startStr, endStr string, days int, all bool) error {
+	// Create context for cancellation
+	ctx := context.Background()
+
 	// Trim trailing slash if present
 	url = strings.TrimSuffix(url, "/")
 
@@ -168,7 +171,7 @@ func BuildDBHA(outputDB, url, token, devices, startStr, endStr string, days int,
 		}
 	} else if all {
 		// Discover all devices automatically without prompting
-		trackers, err := homeassistant.DiscoverDeviceTrackers(url, token)
+		trackers, err := homeassistant.DiscoverDeviceTrackers(ctx, url, token)
 		if err != nil {
 			return fmt.Errorf("failed to discover device trackers: %w", err)
 		}
@@ -182,7 +185,7 @@ func BuildDBHA(outputDB, url, token, devices, startStr, endStr string, days int,
 		}
 	} else {
 		// Discover devices interactively
-		trackers, err := homeassistant.DiscoverDeviceTrackers(url, token)
+		trackers, err := homeassistant.DiscoverDeviceTrackers(ctx, url, token)
 		if err != nil {
 			return fmt.Errorf("failed to discover device trackers: %w", err)
 		}
@@ -255,7 +258,6 @@ func BuildDBHA(outputDB, url, token, devices, startStr, endStr string, days int,
 	client := homeassistant.NewClient(url, token)
 
 	// 4. Fetch location history
-	ctx := context.Background()
 	entries, err := homeassistant.FetchLocationHistory(ctx, client, start, end, entityIDs)
 	if err != nil {
 		return fmt.Errorf("failed to fetch location history: %w", err)

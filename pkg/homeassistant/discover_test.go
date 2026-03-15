@@ -1,6 +1,7 @@
 package homeassistant
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -165,7 +166,7 @@ func TestDiscoverDeviceTrackers(t *testing.T) {
 			baseURL := server.URL
 			token := "test-token"
 
-			trackers, err := DiscoverDeviceTrackers(baseURL, token)
+			trackers, err := DiscoverDeviceTrackers(context.Background(), baseURL, token)
 
 			if tt.name == "non-ok HTTP status returns error" || tt.name == "invalid JSON returns error" {
 				if err == nil {
@@ -201,7 +202,7 @@ func TestDiscoverDeviceTrackers_URLNormalization(t *testing.T) {
 	defer server.Close()
 
 	urlWithSlash := server.URL + "/"
-	_, err := DiscoverDeviceTrackers(urlWithSlash, "token")
+	_, err := DiscoverDeviceTrackers(context.Background(), urlWithSlash, "token")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -219,7 +220,7 @@ func TestDiscoverDeviceTrackers_AuthHeader(t *testing.T) {
 	}))
 	defer server.Close()
 
-	_, err := DiscoverDeviceTrackers(server.URL, "my-token")
+	_, err := DiscoverDeviceTrackers(context.Background(), server.URL, "my-token")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -245,7 +246,7 @@ func TestDiscoverDeviceTrackers_FriendlyNameTypeAssertion(t *testing.T) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
-	trackers, err := DiscoverDeviceTrackers(server.URL, "token")
+	trackers, err := DiscoverDeviceTrackers(context.Background(), server.URL, "token")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -282,7 +283,7 @@ func TestDiscoverDeviceTrackers_EntityIDPrefixCase(t *testing.T) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
-	trackers, err := DiscoverDeviceTrackers(server.URL, "token")
+	trackers, err := DiscoverDeviceTrackers(context.Background(), server.URL, "token")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -309,7 +310,7 @@ func TestDiscoverDeviceTrackers_Timeout(t *testing.T) {
 	defer server.Close()
 
 	// Should succeed quickly since server responds immediately
-	_, err := DiscoverDeviceTrackers(server.URL, "token")
+	_, err := DiscoverDeviceTrackers(context.Background(), server.URL, "token")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -335,7 +336,7 @@ func BenchmarkDiscoverDeviceTrackers(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := DiscoverDeviceTrackers(server.URL, "token")
+		_, err := DiscoverDeviceTrackers(context.Background(), server.URL, "token")
 		if err != nil {
 			b.Fatalf("unexpected error: %v", err)
 		}
