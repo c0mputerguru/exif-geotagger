@@ -126,8 +126,9 @@ func BuildDB(inputDir string, outputDB string, filterModels []string) error {
 	defer repo.Close()
 
 	// Prepare filter set if needed
-	filterSet := make(map[string]struct{})
+	var filterSet map[string]struct{}
 	if len(filterModels) > 0 {
+		filterSet = make(map[string]struct{}, len(filterModels))
 		for _, m := range filterModels {
 			filterSet[m] = struct{}{}
 		}
