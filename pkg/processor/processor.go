@@ -3,12 +3,9 @@ package processor
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"io/fs"
 	"log"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -29,60 +26,6 @@ var (
 	RawFileExtensions = []string{".cr2", ".cr3", ".nef", ".arw", ".dng", ".jpg"}
 )
 
-// haClient is a concrete implementation of homeassistant.Client using HTTP.
-type haClient struct {
-	baseURL string
-	token   string
-	client  *http.Client
-}
-
-func (c *haClient) Get(ctx context.Context, url string) (io.ReadCloser, error) {
-	fullURL := c.baseURL + url
-	req, err := http.NewRequestWithContext(ctx, "GET", fullURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		defer resp.Body.Close()
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read error response: %w", err)
-		}
-		return nil, fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(body))
-	}
-	return resp.Body, nil
-}
-
-func (c *haClient) GetTimezone(ctx context.Context) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/api/config", nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("failed to get timezone: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("unexpected status %d", resp.StatusCode)
-	}
-	var cfg struct {
-		Timezone string `json:"timezone"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&cfg); err != nil {
-		return "", fmt.Errorf("failed to decode config: %w", err)
-	}
-	return cfg.Timezone, nil
-}
-
 // DiscoverDevices scans the input directory for images with GPS metadata and returns
 // a map of device models to the latest timestamp seen for each device.
 func DiscoverDevices(inputDir string) (map[string]time.Time, error) {
@@ -96,14 +39,7 @@ func DiscoverDevices(inputDir string) (map[string]time.Time, error) {
 			return nil
 		}
 		ext := strings.ToLower(filepath.Ext(path))
-		found := false
-		for _, validExt := range ImageFileExtensions {
-			if ext == validExt {
-				found = true
-				break
-			}
-		}
-		if !found {
+		if ext != ".jpg" && ext != ".jpeg" && ext != ".heic" && ext != ".png" {
 			return nil
 		}
 		meta, err := exiftool.ReadMetadata(path)
@@ -158,14 +94,7 @@ func BuildDB(inputDir string, outputDB string, filterModels []string) error {
 			return nil
 		}
 		ext := strings.ToLower(filepath.Ext(path))
-		found := false
-		for _, validExt := range ImageFileExtensions {
-			if ext == validExt {
-				found = true
-				break
-			}
-		}
-		if !found {
+		if ext != ".jpg" && ext != ".jpeg" && ext != ".heic" && ext != ".png" {
 			return nil
 		}
 		meta, err := exiftool.ReadMetadata(path)
@@ -323,11 +252,7 @@ func BuildDBHA(outputDB, url, token, devices, startStr, endStr string, days int,
 	}
 
 	// 3. Create HA client
-	client := &haClient{
-		baseURL: url,
-		token:   token,
-		client:  &http.Client{Timeout: 30 * time.Second},
-	}
+	client := homeassistant.NewClient(url, token)
 
 	// 4. Fetch location history
 	ctx := context.Background()
@@ -378,14 +303,7 @@ func TagImages(rawDir string, dbPath string, dryRun bool, priorityDevices []stri
 
 		ext := strings.ToLower(filepath.Ext(path))
 		// Support typical raw formats: .CR2, .CR3, .NEF, .ARW, .DNG, etc.
-		found := false
-		for _, validExt := range RawFileExtensions {
-			if ext == validExt {
-				found = true
-				break
-			}
-		}
-		if !found {
+		if ext != ".cr2" && ext != ".cr3" && ext != ".nef" && ext != ".arw" && ext != ".dng" && ext != ".jpg" {
 			return nil
 		}
 
