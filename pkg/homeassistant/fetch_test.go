@@ -256,7 +256,7 @@ func TestParseLocationFromState_variousTypes(t *testing.T) {
 			state := HAState{
 				Attributes: json.RawMessage(tc.attrsJSON),
 			}
-			lat, lon, alt, _, err := parseLocationFromState(state)
+			data, err := parseLocationFromState(state)
 			if tc.wantErr {
 				if err == nil {
 					t.Errorf("expected error, got none")
@@ -266,15 +266,15 @@ func TestParseLocationFromState_variousTypes(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			if lat != tc.wantLat {
-				t.Errorf("expected lat %f, got %f", tc.wantLat, lat)
+			if data.Latitude != tc.wantLat {
+				t.Errorf("expected lat %f, got %f", tc.wantLat, data.Latitude)
 			}
-			if lon != tc.wantLon {
-				t.Errorf("expected lon %f, got %f", tc.wantLon, lon)
+			if data.Longitude != tc.wantLon {
+				t.Errorf("expected lon %f, got %f", tc.wantLon, data.Longitude)
 			}
 			if tc.wantAlt != nil {
-				if alt == nil || *alt != *tc.wantAlt {
-					t.Errorf("expected alt %f, got %v", *tc.wantAlt, alt)
+				if data.Altitude == nil || *data.Altitude != *tc.wantAlt {
+					t.Errorf("expected alt %f, got %v", *tc.wantAlt, data.Altitude)
 				}
 			}
 		})

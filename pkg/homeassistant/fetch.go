@@ -3,6 +3,7 @@ package homeassistant
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -12,6 +13,24 @@ import (
 
 	"github.com/abpatel/exif-geotagger/pkg/database"
 )
+
+// Custom error types for parseLocationFromState failures
+var (
+	ErrMissingLatitude   = errors.New("missing latitude")
+	ErrMissingLongitude  = errors.New("missing longitude")
+	ErrInvalidLatitude   = errors.New("latitude not a number")
+	ErrInvalidLongitude  = errors.New("longitude not a number")
+	ErrInvalidTimestamp  = errors.New("invalid timestamp")
+	ErrInvalidAttributes = errors.New("invalid attributes")
+)
+
+// LocationData contains the parsed location information from an HA state.
+type LocationData struct {
+	Latitude  float64
+	Longitude float64
+	Altitude  *float64
+	Timestamp time.Time
+}
 
 // HAState represents a single state entry from HA history.
 type HAState struct {
@@ -72,7 +91,7 @@ func FetchLocationHistory(ctx context.Context, client Client, start, end time.Ti
 	for _, entityStates := range resp {
 		for _, state := range entityStates {
 			// Parse the state to extract location info
-			lat, lon, alt, ts, err := parseLocationFromState(state)
+			data, err := parseLocationFromState(state)
 			if err != nil {
 				// Track skip reason
 				skipCounts[err.Error()]++
@@ -80,10 +99,10 @@ func FetchLocationHistory(ctx context.Context, client Client, start, end time.Ti
 			}
 			// Build LocationEntry (we don't have city/state/country from HA usually)
 			entry := database.LocationEntry{
-				Timestamp:   ts,
-				Latitude:    lat,
-				Longitude:   lon,
-				Altitude:    alt,
+				Timestamp:   data.Timestamp,
+				Latitude:    data.Latitude,
+				Longitude:   data.Longitude,
+				Altitude:    data.Altitude,
 				DeviceModel: state.EntityID, // Use entity ID as device model
 			}
 			entries = append(entries, entry)
@@ -107,39 +126,33 @@ func FetchLocationHistory(ctx context.Context, client Client, start, end time.Ti
 
 // parseLocationFromState extracts latitude, longitude, altitude, and timestamp from an HA state.
 // HA states typically have attributes with gps_accuracy, latitude, longitude, source, etc.
-func parseLocationFromState(state HAState) (lat, lon float64, alt *float64, ts time.Time, err error) {
+// Returns a LocationData struct and an error. If parsing fails, returns specific custom errors.
+func parseLocationFromState(state HAState) (*LocationData, error) {
 	// The state's attributes should contain the location data
 	attrs := make(map[string]interface{})
 	if err := json.Unmarshal(state.Attributes, &attrs); err != nil {
-		return 0, 0, nil, time.Time{}, fmt.Errorf("invalid attributes: %w", err)
+		return nil, fmt.Errorf("%w: %v", ErrInvalidAttributes, err)
 	}
 
 	// Check for latitude and longitude
 	latVal, okLat := attrs["latitude"]
 	lonVal, okLon := attrs["longitude"]
 	if !okLat || !okLon {
-		return 0, 0, nil, time.Time{}, fmt.Errorf("missing latitude or longitude")
+		return nil, ErrMissingLatitudeLongitude()
 	}
 
-	lat, okLat = latVal.(float64)
-	lon, okLon = lonVal.(float64)
-	if !okLat || !okLon {
-		// Sometimes they might be numbers encoded differently (e.g., json.Number)
-		// Try converting via fmt
-		if latFloat, err := convertToFloat64(latVal); err == nil {
-			lat = latFloat
-		} else {
-			return 0, 0, nil, time.Time{}, fmt.Errorf("latitude not a number")
-		}
-		if lonFloat, err := convertToFloat64(lonVal); err == nil {
-			lon = lonFloat
-		} else {
-			return 0, 0, nil, time.Time{}, fmt.Errorf("longitude not a number")
-		}
+	lat, err := convertToFloat64(latVal)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalidLatitude, err)
+	}
+	lon, err := convertToFloat64(lonVal)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalidLongitude, err)
 	}
 
 	// Optional: altitude
 	// Prefer gps_altitude (GPS altitude) over generic altitude
+	var alt *float64
 	if altVal, ok := attrs["gps_altitude"]; ok {
 		if altFloat, ok := altVal.(float64); ok {
 			alt = &altFloat
@@ -154,7 +167,7 @@ func parseLocationFromState(state HAState) (lat, lon float64, alt *float64, ts t
 	}
 
 	// Parse timestamp: use state.LastUpdatedISO, then state.LastUpdated, then fallback to attrs
-	ts = time.Time{}
+	var ts time.Time
 	if state.LastUpdatedISO != "" {
 		if parsed, err := time.Parse(time.RFC3339, state.LastUpdatedISO); err == nil {
 			ts = parsed
@@ -174,7 +187,17 @@ func parseLocationFromState(state HAState) (lat, lon float64, alt *float64, ts t
 		}
 	}
 
-	return lat, lon, alt, ts, nil
+	return &LocationData{
+		Latitude:  lat,
+		Longitude: lon,
+		Altitude:  alt,
+		Timestamp: ts,
+	}, nil
+}
+
+// ErrMissingLatitudeLongitude returns when either latitude or longitude is missing.
+func ErrMissingLatitudeLongitude() error {
+	return errors.New("missing latitude or longitude")
 }
 
 // convertToFloat64 converts numeric types to float64.
