@@ -1,39 +1,16 @@
 package main
 
-import (
-	"context"
-	"encoding/json"
-	"flag"
-	"fmt"
-	"os"
-	"sort"
-	"strings"
+import "os"
 
-	"github.com/AlecAivazis/survey/v2"
-	"github.com/abpatel/exif-geotagger/pkg/database"
-	"github.com/abpatel/exif-geotagger/pkg/processor"
-)
-
-func printDatabase(dbPath string) {
-	repo, err := database.Connect(dbPath)
-	if err != nil {
-		fmt.Printf("Error connecting to database: %v\n", err)
-		os.Exit(1)
-	}
-	defer repo.Close()
-
-	entries, err := repo.GetAll(context.Background())
-	if err != nil {
-		fmt.Printf("Error fetching entries: %v\n", err)
-		os.Exit(1)
-	}
-
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(entries); err != nil {
-		fmt.Printf("Error encoding JSON: %v\n", err)
-		os.Exit(1)
-	}
+func printUsage() {
+	println("Usage: exif-geotagger <command> [options]")
+	println()
+	println("Commands:")
+	println("  build-db      Extract GPS data from reference images and build database")
+	println("  print-db      Print database contents as JSON")
+	println("  tag-images    Tag raw images with GPS data from database")
+	println()
+	println("Run 'exif-geotagger <command> -h' for more information on a command.")
 }
 
 func main() {
@@ -42,255 +19,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	exitCode := 0
-
 	switch os.Args[1] {
 	case "build-db":
-		buildDBCmd := flag.NewFlagSet("build-db", flag.ExitOnError)
-		inputDir := buildDBCmd.String("input", "", "Directory containing reference images with GPS data")
-		outputDB := buildDBCmd.String("output", "db.sqlite", "Path to output SQLite database")
-		source := buildDBCmd.String("source", "images", "Data source: 'images' or 'ha'")
-		haURL := buildDBCmd.String("ha-url", "", "Home Assistant URL")
-		haToken := buildDBCmd.String("ha-token", "", "Home Assistant long-lived access token")
-		haDevices := buildDBCmd.String("ha-devices", "", "Comma-separated list of device entity IDs")
-		haStart := buildDBCmd.String("ha-start", "", "Start time for HA history (RFC3339)")
-		haEnd := buildDBCmd.String("ha-end", "", "End time for HA history (RFC3339)")
-		haDays := buildDBCmd.Int("ha-days", 0, "Number of days of history (alternative to start/end)")
-		all := buildDBCmd.Bool("all", false, "Select all discovered devices")
-
-		buildDBCmd.Parse(os.Args[2:])
-
-		// Backward compatibility: if -source is not provided or is "images", require -input
-		if *source == "images" || *source == "" {
-			if *inputDir == "" {
-				fmt.Println("Error: -input directory is required when source is 'images'")
-				buildDBCmd.Usage()
-				exitCode = 1
-				break
-			}
-		}
-
-		// Build unified config
-		cfg := processor.BuildConfig{
-			OutputDB: *outputDB,
-			Source:   *source,
-			// HA config
-			HAURL:     *haURL,
-			HAToken:   *haToken,
-			HADevices: *haDevices,
-			HAStart:   *haStart,
-			HAEnd:     *haEnd,
-			HADays:    *haDays,
-			HAAll:     *all,
-		}
-
-		if *source == "ha" {
-			// Call unified BuildDB with HA configuration
-			if err := processor.BuildDB(cfg); err != nil {
-				fmt.Printf("Error building database from Home Assistant: %v\n", err)
-				exitCode = 1
-			}
-		} else {
-			// Images source: set InputDir and determine device filter
-			cfg.InputDir = *inputDir
-			// Determine device filter from flags or interactive discovery
-			if *all {
-				// FilterModels remains nil => all devices
-			} else if *haDevices != "" {
-				parts := strings.Split(*haDevices, ",")
-				for _, p := range parts {
-					cfg.FilterModels = append(cfg.FilterModels, strings.TrimSpace(p))
-				}
-			} else {
-				// Interactive device discovery
-				devices, err := processor.DiscoverDevices(*inputDir)
-				if err != nil {
-					fmt.Printf("Error discovering devices: %v\n", err)
-					exitCode = 1
-					break
-				}
-				if len(devices) == 0 {
-					fmt.Println("No devices with GPS data found in the input directory.")
-					exitCode = 1
-					break
-				}
-				// Prepare options for prompt: map display string -> model, and sort by timestamp descending
-				displayToModel := make(map[string]string)
-				type option struct {
-					display string
-					model   string
-				}
-				var options []option
-				for model, ts := range devices {
-					display := fmt.Sprintf("%s (last seen: %s)", model, ts.Format("2006-01-02 15:04:05"))
-					displayToModel[display] = model
-					options = append(options, option{display: display, model: model})
-				}
-				// Sort by timestamp descending
-				sort.Slice(options, func(i, j int) bool {
-					return devices[options[i].model].After(devices[options[j].model])
-				})
-				// Build sorted display list
-				optionList := make([]string, len(options))
-				for i, opt := range options {
-					optionList[i] = opt.display
-				}
-				var selectedDisplays []string
-				err = survey.AskOne(&survey.MultiSelect{
-					Message: "Select devices to include in database:",
-					Options: optionList,
-				}, &selectedDisplays)
-				if err != nil {
-					fmt.Printf("Error during device selection: %v\n", err)
-					exitCode = 1
-					break
-				}
-				// Map selected displays back to device models
-				cfg.FilterModels = make([]string, len(selectedDisplays))
-				for i, disp := range selectedDisplays {
-					cfg.FilterModels[i] = displayToModel[disp]
-				}
-				if len(cfg.FilterModels) == 0 {
-					fmt.Println("No devices selected. Exiting.")
-					exitCode = 0
-					break
-				}
-			}
-
-			if exitCode == 0 { // Only proceed if no error occurred
-				if err := processor.BuildDB(cfg); err != nil {
-					fmt.Printf("Error building database: %v\n", err)
-					exitCode = 1
-				}
-			}
-		}
-
-		// For images source, set InputDir and FilterModels after device selection logic
-		if *source == "images" || *source == "" {
-			if *inputDir == "" {
-				fmt.Println("Error: -input directory is required when source is 'images'")
-				buildDBCmd.Usage()
-				os.Exit(1)
-			}
-			cfg.InputDir = *inputDir
-			// Determine device filter from flags or interactive discovery
-			if *all {
-				// FilterModels remains nil => all devices
-			} else if *haDevices != "" {
-				parts := strings.Split(*haDevices, ",")
-				for _, p := range parts {
-					cfg.FilterModels = append(cfg.FilterModels, strings.TrimSpace(p))
-				}
-			} else {
-				// Interactive device discovery
-				devices, err := processor.DiscoverDevices(*inputDir)
-				if err != nil {
-					fmt.Printf("Error discovering devices: %v\n", err)
-					os.Exit(1)
-				}
-				if len(devices) == 0 {
-					fmt.Println("No devices with GPS data found in the input directory.")
-					os.Exit(1)
-				}
-				// Prepare options for prompt
-				displayToModel := make(map[string]string)
-				type option struct {
-					display string
-					model   string
-				}
-				var options []option
-				for model, ts := range devices {
-					display := fmt.Sprintf("%s (last seen: %s)", model, ts.Format("2006-01-02 15:04:05"))
-					displayToModel[display] = model
-					options = append(options, option{display: display, model: model})
-				}
-				// Sort by timestamp descending
-				sort.Slice(options, func(i, j int) bool {
-					return devices[options[i].model].After(devices[options[j].model])
-				})
-				// Build sorted display list
-				optionList := make([]string, len(options))
-				for i, opt := range options {
-					optionList[i] = opt.display
-				}
-				var selectedDisplays []string
-				err = survey.AskOne(&survey.MultiSelect{
-					Message: "Select devices to include in database:",
-					Options: optionList,
-				}, &selectedDisplays)
-				if err != nil {
-					fmt.Printf("Error during device selection: %v\n", err)
-					os.Exit(1)
-				}
-				// Map selected displays back to device models
-				cfg.FilterModels = make([]string, len(selectedDisplays))
-				for i, disp := range selectedDisplays {
-					cfg.FilterModels[i] = displayToModel[disp]
-				}
-				if len(cfg.FilterModels) == 0 {
-					fmt.Println("No devices selected. Exiting.")
-					os.Exit(0)
-				}
-			}
-		}
-
-		if err := processor.BuildDB(cfg); err != nil {
-			fmt.Printf("Error building database: %v\n", err)
-			os.Exit(1)
-		}
-
+		runBuildDB()
 	case "print-db":
-		printDbCmd := flag.NewFlagSet("print-db", flag.ExitOnError)
-		dbPath := printDbCmd.String("db", "db.sqlite", "Path to SQLite database")
-
-		printDbCmd.Parse(os.Args[2:])
-
-		printDatabase(*dbPath)
-
+		runPrintDB()
 	case "tag-images":
-		tagImagesCmd := flag.NewFlagSet("tag-images", flag.ExitOnError)
-		rawDir := tagImagesCmd.String("raw-dir", "", "Directory containing raw images to tag")
-		dbPath := tagImagesCmd.String("db", "db.sqlite", "Path to SQLite database")
-		dryRun := tagImagesCmd.Bool("dry-run", false, "Preview changes without writing")
-		priorityDevices := tagImagesCmd.String("priority-devices", "", "Comma-separated list of priority devices (e.g., 'iPhone,Pixel')")
-
-		tagImagesCmd.Parse(os.Args[2:])
-
-		if *rawDir == "" {
-			fmt.Println("Error: -raw-dir directory is required")
-			tagImagesCmd.Usage()
-			os.Exit(1)
-		}
-
-		var priorityDevicesList []string
-		if *priorityDevices != "" {
-			priorityDevicesList = strings.Split(*priorityDevices, ",")
-			for i, d := range priorityDevicesList {
-				priorityDevicesList[i] = strings.TrimSpace(d)
-			}
-		}
-
-		if err := processor.TagImages(*rawDir, *dbPath, *dryRun, priorityDevicesList); err != nil {
-			fmt.Printf("Error tagging images: %v\n", err)
-			os.Exit(1)
-		}
-
+		runTagImages()
 	default:
-		fmt.Printf("Unknown command: %s\n", os.Args[1])
 		printUsage()
-		exitCode = 1
+		os.Exit(1)
 	}
-
-	os.Exit(exitCode)
-}
-
-func printUsage() {
-	fmt.Println("Usage: exif-geotagger <command> [options]")
-	fmt.Println()
-	fmt.Println("Commands:")
-	fmt.Println("  build-db      Extract GPS data from reference images and build database")
-	fmt.Println("  print-db      Print database contents as JSON")
-	fmt.Println("  tag-images    Tag raw images with GPS data from database")
-	fmt.Println()
-	fmt.Println("Run 'exif-geotagger <command> -h' for more information on a command.")
 }
