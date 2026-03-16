@@ -14,29 +14,29 @@ import (
 	"github.com/abpatel/exif-geotagger/pkg/processor"
 )
 
-func printDatabase(dbPath string) {
+func printDatabase(dbPath string) error {
 	repo, err := database.Connect(dbPath)
 	if err != nil {
-		fmt.Printf("Error connecting to database: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("error connecting to database: %w", err)
 	}
 	defer repo.Close()
 
 	entries, err := repo.GetAll(context.Background())
 	if err != nil {
-		fmt.Printf("Error fetching entries: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("error fetching entries: %w", err)
 	}
 
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(entries); err != nil {
-		fmt.Printf("Error encoding JSON: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("error encoding JSON: %w", err)
 	}
+	return nil
 }
 
 func main() {
+	exitCode := 0
+
 	if len(os.Args) < 2 {
 		printUsage()
 		os.Exit(1)
@@ -63,7 +63,8 @@ func main() {
 			if *inputDir == "" {
 				fmt.Println("Error: -input directory is required when source is 'images'")
 				buildDBCmd.Usage()
-				os.Exit(1)
+				exitCode = 1
+				break
 			}
 		}
 
@@ -71,7 +72,7 @@ func main() {
 			// Call BuildDBHA with HA parameters
 			if err := processor.BuildDBHA(*outputDB, *haURL, *haToken, *haDevices, *haStart, *haEnd, *haDays, *all); err != nil {
 				fmt.Printf("Error building database from Home Assistant: %v\n", err)
-				os.Exit(1)
+				exitCode = 1
 			}
 		} else {
 			// Images source: determine device filter from flags or interactive discovery
@@ -88,11 +89,13 @@ func main() {
 				devices, err := processor.DiscoverDevices(*inputDir)
 				if err != nil {
 					fmt.Printf("Error discovering devices: %v\n", err)
-					os.Exit(1)
+					exitCode = 1
+					break
 				}
 				if len(devices) == 0 {
 					fmt.Println("No devices with GPS data found in the input directory.")
-					os.Exit(1)
+					exitCode = 1
+					break
 				}
 				// Prepare options for prompt: map display string -> model, and sort by timestamp descending
 				displayToModel := make(map[string]string)
@@ -122,7 +125,8 @@ func main() {
 				}, &selectedDisplays)
 				if err != nil {
 					fmt.Printf("Error during device selection: %v\n", err)
-					os.Exit(1)
+					exitCode = 1
+					break
 				}
 				// Map selected displays back to device models
 				deviceFilter = make([]string, len(selectedDisplays))
@@ -131,13 +135,16 @@ func main() {
 				}
 				if len(deviceFilter) == 0 {
 					fmt.Println("No devices selected. Exiting.")
-					os.Exit(0)
+					exitCode = 0
+					break
 				}
 			}
 
-			if err := processor.BuildDB(*inputDir, *outputDB, deviceFilter); err != nil {
-				fmt.Printf("Error building database: %v\n", err)
-				os.Exit(1)
+			if exitCode == 0 { // Only proceed if no error occurred
+				if err := processor.BuildDB(*inputDir, *outputDB, deviceFilter); err != nil {
+					fmt.Printf("Error building database: %v\n", err)
+					exitCode = 1
+				}
 			}
 		}
 
@@ -147,7 +154,9 @@ func main() {
 
 		printDbCmd.Parse(os.Args[2:])
 
-		printDatabase(*dbPath)
+		if err := printDatabase(*dbPath); err != nil {
+			exitCode = 1
+		}
 
 	case "tag-images":
 		tagImagesCmd := flag.NewFlagSet("tag-images", flag.ExitOnError)
@@ -161,27 +170,29 @@ func main() {
 		if *rawDir == "" {
 			fmt.Println("Error: -raw-dir directory is required")
 			tagImagesCmd.Usage()
-			os.Exit(1)
-		}
-
-		var priorityDevicesList []string
-		if *priorityDevices != "" {
-			priorityDevicesList = strings.Split(*priorityDevices, ",")
-			for i, d := range priorityDevicesList {
-				priorityDevicesList[i] = strings.TrimSpace(d)
+			exitCode = 1
+		} else {
+			var priorityDevicesList []string
+			if *priorityDevices != "" {
+				priorityDevicesList = strings.Split(*priorityDevices, ",")
+				for i, d := range priorityDevicesList {
+					priorityDevicesList[i] = strings.TrimSpace(d)
+				}
 			}
-		}
 
-		if err := processor.TagImages(*rawDir, *dbPath, *dryRun, priorityDevicesList); err != nil {
-			fmt.Printf("Error tagging images: %v\n", err)
-			os.Exit(1)
+			if err := processor.TagImages(*rawDir, *dbPath, *dryRun, priorityDevicesList); err != nil {
+				fmt.Printf("Error tagging images: %v\n", err)
+				exitCode = 1
+			}
 		}
 
 	default:
 		fmt.Printf("Unknown command: %s\n", os.Args[1])
 		printUsage()
-		os.Exit(1)
+		exitCode = 1
 	}
+
+	os.Exit(exitCode)
 }
 
 func printUsage() {
