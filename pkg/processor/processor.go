@@ -169,9 +169,7 @@ func BuildDB(inputDir string, outputDB string, filterModels []string) error {
 }
 
 // BuildDBHA builds a location database from Home Assistant.
-func BuildDBHA(outputDB, url, token, devices, startStr, endStr string, days int, all bool) error {
-	// Create context for cancellation
-	ctx := context.Background()
+func BuildDBHA(ctx context.Context, outputDB, url, token, devices, startStr, endStr string, days int, all bool) error {
 
 	// Trim trailing slash if present
 	url = strings.TrimSuffix(url, "/")

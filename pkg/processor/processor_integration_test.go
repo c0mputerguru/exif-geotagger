@@ -101,6 +101,7 @@ func TestEndToEnd_HAtoTagImages(t *testing.T) {
 	// 1. Build DB from HA source using -source=ha equivalent
 	// Call BuildDBHA with explicit devices and time range
 	err := BuildDBHA(
+		context.Background(),
 		dbPath,
 		server.URL,
 		"test-token",

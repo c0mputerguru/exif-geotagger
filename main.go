@@ -71,7 +71,7 @@ func main() {
 
 		if *source == "ha" {
 			// Call BuildDBHA with HA parameters
-			if err := processor.BuildDBHA(*outputDB, *haURL, *haToken, *haDevices, *haStart, *haEnd, *haDays, *all); err != nil {
+			if err := processor.BuildDBHA(context.Background(), *outputDB, *haURL, *haToken, *haDevices, *haStart, *haEnd, *haDays, *all); err != nil {
 				logger.Error("Error building database from Home Assistant: %v", err)
 				exitCode = 1
 				break
