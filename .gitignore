@@ -6,3 +6,4 @@ state.json
 .opencode/
 .beads/
 db.sqlite
+exif-geotagger

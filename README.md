@@ -621,3 +621,7 @@ Contributions are welcome! Please:
 
 - **ExifTool** by Phil Harvey - https://exiftool.org/
 - Built with Go and SQLite
+
+## Cleanup
+
+- (ge-xmw) Removed binary-dependent integration tests (build-db_integration_test.go) from mayor/rig and refinery/rig; removed exif-geotagger binary; added to .gitignore to prevent future check-ins.
