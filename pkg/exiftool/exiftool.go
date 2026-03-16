@@ -105,12 +105,21 @@ func (m *Metadata) GetTimestamp() (time.Time, error) {
 					if i > 0 {
 						ms, _ = strconv.Atoi(frac[:i])
 						// Remove fractional part (dot and digits) from timePart
-						timePart = timePart[:dotIdx] + timePart[dotIdx+1+i:]
+						var b strings.Builder
+						b.Grow(len(timePart) - i - 1)
+						b.WriteString(timePart[:dotIdx])
+						b.WriteString(timePart[dotIdx+1+i:])
+						timePart = b.String()
 					}
 				}
 
 				// Build a normalized string using 'T' separator
-				normalized := datePart + "T" + timePart
+				var builder strings.Builder
+				builder.Grow(len(datePart) + 1 + len(timePart))
+				builder.WriteString(datePart)
+				builder.WriteByte('T')
+				builder.WriteString(timePart)
+				normalized := builder.String()
 
 				// Try parsing with timezone (RFC3339)
 				if t, err := time.ParseInLocation(time.RFC3339, normalized, time.UTC); err == nil {

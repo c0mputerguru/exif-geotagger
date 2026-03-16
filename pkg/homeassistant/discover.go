@@ -107,7 +107,11 @@ func SelectDeviceTrackersInteractive(trackers []DeviceTracker) ([]string, error)
 		}
 		lastSeen := t.LastSeen
 		if lastSeen != "" {
-			lastSeen = " (last seen: " + lastSeen + ")"
+			var builder strings.Builder
+			builder.WriteString(" (last seen: ")
+			builder.WriteString(lastSeen)
+			builder.WriteByte(')')
+			lastSeen = builder.String()
 		}
 		fmt.Printf("%d. %s%s (%s)\n", i+1, name, lastSeen, t.EntityID)
 	}
