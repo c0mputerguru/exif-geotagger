@@ -23,6 +23,16 @@ var (
 	RawFileExtensions = []string{".cr2", ".cr3", ".nef", ".arw", ".dng", ".jpg"}
 )
 
+// hasExtension checks if the given extension exists in the list
+func hasExtension(ext string, extensions []string) bool {
+	for _, e := range extensions {
+		if e == ext {
+			return true
+		}
+	}
+	return false
+}
+
 // copyLocationEntry creates a new exiftool.Metadata from a database.LocationEntry,
 // performing deep copies of pointer fields to avoid data races when the entry is reused.
 func copyLocationEntry(entry database.LocationEntry) exiftool.Metadata {
@@ -76,7 +86,7 @@ func DiscoverDevices(inputDir string) (map[string]time.Time, error) {
 			return nil
 		}
 		ext := strings.ToLower(filepath.Ext(path))
-		if ext != ".jpg" && ext != ".jpeg" && ext != ".heic" && ext != ".png" {
+		if !hasExtension(ext, ImageFileExtensions) {
 			return nil
 		}
 		meta, err := exiftool.ReadMetadata(path)
@@ -162,7 +172,7 @@ func buildDBFromImages(cfg BuildConfig) error {
 			return nil
 		}
 		ext := strings.ToLower(filepath.Ext(path))
-		if ext != ".jpg" && ext != ".jpeg" && ext != ".heic" && ext != ".png" {
+		if !hasExtension(ext, ImageFileExtensions) {
 			return nil
 		}
 		meta, err := exiftool.ReadMetadata(path)
@@ -338,8 +348,7 @@ func TagImages(rawDir string, dbPath string, dryRun bool, priorityDevices []stri
 		}
 
 		ext := strings.ToLower(filepath.Ext(path))
-		// Support typical raw formats: .CR2, .CR3, .NEF, .ARW, .DNG, etc.
-		if ext != ".cr2" && ext != ".cr3" && ext != ".nef" && ext != ".arw" && ext != ".dng" && ext != ".jpg" {
+		if !hasExtension(ext, RawFileExtensions) {
 			return nil
 		}
 
