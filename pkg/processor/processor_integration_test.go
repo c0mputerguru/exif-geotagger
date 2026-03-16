@@ -90,6 +90,56 @@ func createRawImage(t *testing.T, dir string, filename string, ts time.Time) str
 	return path
 }
 
+// createImageWithGPS creates a JPEG file with GPS metadata, timestamp, and device model.
+func createImageWithGPS(t *testing.T, dir string, filename string, lat, lon float64, alt float64, ts time.Time, model string) string {
+	path := filepath.Join(dir, filename)
+	// Create a simple JPEG
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("failed to create image: %v", err)
+	}
+	defer f.Close()
+	img := image.NewRGBA(image.Rect(0, 0, 10, 10))
+	for x := 0; x < 10; x++ {
+		for y := 0; y < 10; y++ {
+			img.Set(x, y, color.RGBA{0, 255, 0, 255})
+		}
+	}
+	if err := jpeg.Encode(f, img, nil); err != nil {
+		t.Fatalf("failed to encode JPEG: %v", err)
+	}
+	// Set GPS and other metadata using exiftool CLI
+	dtStr := ts.Format("2006:01:02 15:04:05")
+	latRef := "N"
+	if lat < 0 {
+		latRef = "S"
+	}
+	lonRef := "E"
+	if lon < 0 {
+		lonRef = "W"
+	}
+	altRef := "0"
+	if alt < 0 {
+		altRef = "1"
+	}
+	cmd := exec.Command("exiftool",
+		"-DateTimeOriginal="+dtStr,
+		"-GPSLatitude="+fmt.Sprintf("%f", lat),
+		"-GPSLongitude="+fmt.Sprintf("%f", lon),
+		"-GPSAltitude="+fmt.Sprintf("%f", alt),
+		"-GPSLatitudeRef="+latRef,
+		"-GPSLongitudeRef="+lonRef,
+		"-GPSAltitudeRef="+altRef,
+		"-Model="+model,
+		"-overwrite_original",
+		path,
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("exiftool failed: %s, %v", out, err)
+	}
+	return path
+}
+
 func TestEndToEnd_HAtoTagImages(t *testing.T) {
 	// Start mock HA server
 	server := mockHAServer(t)
@@ -160,5 +210,157 @@ func TestEndToEnd_HAtoTagImages(t *testing.T) {
 	}
 	if meta.GPSAltitude == nil || *meta.GPSAltitude != 15.2 {
 		t.Errorf("GPSAltitude = %v, want ~15.2", meta.GPSAltitude)
+	}
+}
+
+func TestEndToEnd_BuildDBFromImages(t *testing.T) {
+	// Prepare directories
+	imagesDir := t.TempDir()
+	dbPath := filepath.Join(t.TempDir(), "images.db")
+
+	// Create test images with GPS metadata from different devices
+	// Image 1: iPhone at 2023-10-01 12:00:00 UTC
+	img1Time := time.Date(2023, 10, 1, 12, 0, 0, 0, time.UTC)
+	createImageWithGPS(t, imagesDir, "iphone_photo1.jpg", 37.7749, -122.4194, 15.2, img1Time, "iPhone 14 Pro")
+
+	// Image 2: Pixel at 2023-10-01 13:00:00 UTC
+	img2Time := time.Date(2023, 10, 1, 13, 0, 0, 0, time.UTC)
+	createImageWithGPS(t, imagesDir, "pixel_photo1.jpg", 37.7750, -122.4195, 20.1, img2Time, "Pixel 8")
+
+	// Image 3: Another iPhone photo at 2023-10-01 14:00:00 UTC
+	img3Time := time.Date(2023, 10, 1, 14, 0, 0, 0, time.UTC)
+	createImageWithGPS(t, imagesDir, "iphone_photo2.jpg", 37.7760, -122.4200, 12.5, img3Time, "iPhone 14 Pro")
+
+	// Build database from images source
+	err := BuildDB(BuildConfig{
+		OutputDB: dbPath,
+		Source:   "images",
+		InputDir: imagesDir,
+	})
+	if err != nil {
+		t.Fatalf("BuildDB from images failed: %v", err)
+	}
+
+	// Verify database entries
+	repo, err := database.Connect(dbPath)
+	if err != nil {
+		t.Fatalf("connect DB: %v", err)
+	}
+	defer repo.Close()
+	entries, err := repo.GetAll(context.Background())
+	if err != nil {
+		t.Fatalf("get all entries: %v", err)
+	}
+
+	// We expect 3 entries
+	if len(entries) != 3 {
+		t.Fatalf("expected 3 entries, got %d", len(entries))
+	}
+
+	// Count entries by model
+	modelsCount := make(map[string]int)
+	for _, e := range entries {
+		modelsCount[e.DeviceModel]++
+	}
+
+	// Check we have 2 iPhone entries and 1 Pixel entry
+	if modelsCount["iPhone 14 Pro"] != 2 {
+		t.Errorf("expected 2 iPhone 14 Pro entries, got %d", modelsCount["iPhone 14 Pro"])
+	}
+	if modelsCount["Pixel 8"] != 1 {
+		t.Errorf("expected 1 Pixel 8 entry, got %d", modelsCount["Pixel 8"])
+	}
+
+	// Verify specific entry values by finding them
+	var iphone1, iphone2, pixelEntry *database.LocationEntry
+	for i := range entries {
+		e := entries[i]
+		if e.DeviceModel == "iPhone 14 Pro" {
+			if e.Timestamp.Equal(img1Time) {
+				iphone1 = &e
+			} else if e.Timestamp.Equal(img3Time) {
+				iphone2 = &e
+			}
+		} else if e.DeviceModel == "Pixel 8" && e.Timestamp.Equal(img2Time) {
+			pixelEntry = &e
+		}
+	}
+
+	// Check iPhone 1
+	if iphone1 == nil {
+		t.Error("missing iPhone 14 Pro entry for first image")
+	} else {
+		if iphone1.Latitude != 37.7749 || iphone1.Longitude != -122.4194 {
+			t.Errorf("iPhone 1 location mismatch: got (%f, %f)", iphone1.Latitude, iphone1.Longitude)
+		}
+		if *iphone1.Altitude != 15.2 {
+			t.Errorf("iPhone 1 altitude mismatch: got %f", *iphone1.Altitude)
+		}
+	}
+
+	// Check iPhone 2
+	if iphone2 == nil {
+		t.Error("missing iPhone 14 Pro entry for second image")
+	} else {
+		if iphone2.Latitude != 37.7760 || iphone2.Longitude != -122.4200 {
+			t.Errorf("iPhone 2 location mismatch: got (%f, %f)", iphone2.Latitude, iphone2.Longitude)
+		}
+		if *iphone2.Altitude != 12.5 {
+			t.Errorf("iPhone 2 altitude mismatch: got %f", *iphone2.Altitude)
+		}
+	}
+
+	// Check Pixel
+	if pixelEntry == nil {
+		t.Error("missing Pixel 8 entry")
+	} else {
+		if pixelEntry.Latitude != 37.7750 || pixelEntry.Longitude != -122.4195 {
+			t.Errorf("Pixel location mismatch: got (%f, %f)", pixelEntry.Latitude, pixelEntry.Longitude)
+		}
+		if *pixelEntry.Altitude != 20.1 {
+			t.Errorf("Pixel altitude mismatch: got %f", *pixelEntry.Altitude)
+		}
+	}
+}
+
+func TestEndToEnd_BuildDBFromImages_WithFilter(t *testing.T) {
+	// Test filtering by device models
+	imagesDir := t.TempDir()
+	dbPath := filepath.Join(t.TempDir(), "filtered.db")
+
+	// Create images from two different models
+	img1Time := time.Date(2023, 10, 1, 12, 0, 0, 0, time.UTC)
+	createImageWithGPS(t, imagesDir, "iphone.jpg", 37.7749, -122.4194, 15.2, img1Time, "iPhone 14 Pro")
+
+	img2Time := time.Date(2023, 10, 1, 13, 0, 0, 0, time.UTC)
+	createImageWithGPS(t, imagesDir, "pixel.jpg", 37.7750, -122.4195, 20.1, img2Time, "Pixel 8")
+
+	// Build database with filter for only iPhone
+	err := BuildDB(BuildConfig{
+		OutputDB:     dbPath,
+		Source:       "images",
+		InputDir:     imagesDir,
+		FilterModels: []string{"iPhone 14 Pro"},
+	})
+	if err != nil {
+		t.Fatalf("BuildDB with filter failed: %v", err)
+	}
+
+	// Verify only iPhone entries were added
+	repo, err := database.Connect(dbPath)
+	if err != nil {
+		t.Fatalf("connect DB: %v", err)
+	}
+	defer repo.Close()
+	entries, err := repo.GetAll(context.Background())
+	if err != nil {
+		t.Fatalf("get all entries: %v", err)
+	}
+
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry after filter, got %d", len(entries))
+	}
+	if entries[0].DeviceModel != "iPhone 14 Pro" {
+		t.Errorf("expected iPhone 14 Pro, got %s", entries[0].DeviceModel)
 	}
 }
