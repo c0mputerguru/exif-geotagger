@@ -50,7 +50,11 @@ func TestFindBestMatch(t *testing.T) {
 		}
 	}
 
-	provider := NewSQLiteLocationProvider(repo)
+	provider := NewSQLiteLocationProvider(repo, ProviderOptions{
+		SearchWindow:       DefaultSearchWindow,
+		TimeThreshold:      DefaultTimeThreshold,
+		PriorityMultiplier: DefaultPriorityMultiplier,
+	})
 
 	tests := []struct {
 		name          string

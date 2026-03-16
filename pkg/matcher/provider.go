@@ -40,26 +40,13 @@ type ProviderOptions struct {
 	PriorityMultiplier float64
 }
 
-// DefaultProviderOptions returns the default settings
-func DefaultProviderOptions() ProviderOptions {
-	return ProviderOptions{
-		SearchWindow:       DefaultSearchWindow,
-		TimeThreshold:      DefaultTimeThreshold,
-		PriorityMultiplier: DefaultPriorityMultiplier,
-	}
-}
-
-// NewSQLiteLocationProvider creates a new provider with optional configuration
-func NewSQLiteLocationProvider(repo *database.Repository, opts ...ProviderOptions) *SQLiteLocationProvider {
-	opt := DefaultProviderOptions()
-	if len(opts) > 0 {
-		opt = opts[0]
-	}
+// NewSQLiteLocationProvider creates a new provider with the given configuration
+func NewSQLiteLocationProvider(repo *database.Repository, opts ProviderOptions) *SQLiteLocationProvider {
 	return &SQLiteLocationProvider{
 		repo:               repo,
-		searchWindow:       opt.SearchWindow,
-		timeThreshold:      opt.TimeThreshold,
-		priorityMultiplier: opt.PriorityMultiplier,
+		searchWindow:       opts.SearchWindow,
+		timeThreshold:      opts.TimeThreshold,
+		priorityMultiplier: opts.PriorityMultiplier,
 	}
 }
 

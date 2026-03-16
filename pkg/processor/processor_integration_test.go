@@ -207,7 +207,11 @@ func TestEndToEnd_HAtoTagImages(t *testing.T) {
 	rawImg := createRawImage(t, rawDir, "photo.jpg", imgTime)
 
 	// 3. Run tag-images
-	err = TagImages(rawDir, dbPath, false, nil, matcher.DefaultProviderOptions())
+	err = TagImages(rawDir, dbPath, false, nil, matcher.ProviderOptions{
+		SearchWindow:       matcher.DefaultSearchWindow,
+		TimeThreshold:      matcher.DefaultTimeThreshold,
+		PriorityMultiplier: matcher.DefaultPriorityMultiplier,
+	})
 	if err != nil {
 		t.Fatalf("TagImages error: %v", err)
 	}
