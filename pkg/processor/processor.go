@@ -26,41 +26,23 @@ var (
 // copyLocationEntry creates a new exiftool.Metadata from a database.LocationEntry,
 // performing deep copies of pointer fields to avoid data races when the entry is reused.
 func copyLocationEntry(entry database.LocationEntry) exiftool.Metadata {
-	lat := entry.Latitude
-	lon := entry.Longitude
-
-	var alt *float64
-	if entry.Altitude != nil {
-		a := *entry.Altitude
-		alt = &a
-	}
-
-	var city *string
-	if entry.City != nil {
-		c := *entry.City
-		city = &c
-	}
-
-	var state *string
-	if entry.State != nil {
-		s := *entry.State
-		state = &s
-	}
-
-	var country *string
-	if entry.Country != nil {
-		co := *entry.Country
-		country = &co
-	}
-
 	return exiftool.Metadata{
-		GPSLatitude:  &lat,
-		GPSLongitude: &lon,
-		GPSAltitude:  alt,
-		City:         city,
-		State:        state,
-		Country:      country,
+		GPSLatitude:  &entry.Latitude,
+		GPSLongitude: &entry.Longitude,
+		GPSAltitude:  ptrCopy(entry.Altitude),
+		City:         ptrCopy(entry.City),
+		State:        ptrCopy(entry.State),
+		Country:      ptrCopy(entry.Country),
 	}
+}
+
+// ptrCopy returns a pointer to a copy of the value if src is non-nil, otherwise returns nil.
+func ptrCopy[T any](src *T) *T {
+	if src == nil {
+		return nil
+	}
+	v := *src
+	return &v
 }
 
 // DiscoverDevices scans the input directory for images with GPS metadata and returns
