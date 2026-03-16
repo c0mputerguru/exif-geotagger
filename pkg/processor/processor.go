@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"log"
 	"path/filepath"
 	"strings"
 	"time"
@@ -11,7 +12,6 @@ import (
 	"github.com/abpatel/exif-geotagger/pkg/database"
 	"github.com/abpatel/exif-geotagger/pkg/exiftool"
 	"github.com/abpatel/exif-geotagger/pkg/homeassistant"
-	"github.com/abpatel/exif-geotagger/pkg/logger"
 	"github.com/abpatel/exif-geotagger/pkg/matcher"
 )
 
@@ -26,23 +26,41 @@ var (
 // copyLocationEntry creates a new exiftool.Metadata from a database.LocationEntry,
 // performing deep copies of pointer fields to avoid data races when the entry is reused.
 func copyLocationEntry(entry database.LocationEntry) exiftool.Metadata {
-	return exiftool.Metadata{
-		GPSLatitude:  &entry.Latitude,
-		GPSLongitude: &entry.Longitude,
-		GPSAltitude:  ptrCopy(entry.Altitude),
-		City:         ptrCopy(entry.City),
-		State:        ptrCopy(entry.State),
-		Country:      ptrCopy(entry.Country),
-	}
-}
+	lat := entry.Latitude
+	lon := entry.Longitude
 
-// ptrCopy returns a pointer to a copy of the value if src is non-nil, otherwise returns nil.
-func ptrCopy[T any](src *T) *T {
-	if src == nil {
-		return nil
+	var alt *float64
+	if entry.Altitude != nil {
+		a := *entry.Altitude
+		alt = &a
 	}
-	v := *src
-	return &v
+
+	var city *string
+	if entry.City != nil {
+		c := *entry.City
+		city = &c
+	}
+
+	var state *string
+	if entry.State != nil {
+		s := *entry.State
+		state = &s
+	}
+
+	var country *string
+	if entry.Country != nil {
+		co := *entry.Country
+		country = &co
+	}
+
+	return exiftool.Metadata{
+		GPSLatitude:  &lat,
+		GPSLongitude: &lon,
+		GPSAltitude:  alt,
+		City:         city,
+		State:        state,
+		Country:      country,
+	}
 }
 
 // DiscoverDevices scans the input directory for images with GPS metadata and returns
@@ -86,10 +104,41 @@ func DiscoverDevices(inputDir string) (map[string]time.Time, error) {
 	return devices, err
 }
 
-// BuildDB builds the database from images in inputDir, optionally filtering by device models.
-// If filterModels is nil or empty, all devices are included.
-func BuildDB(inputDir string, outputDB string, filterModels []string) error {
-	repo, err := database.Connect(outputDB)
+// BuildConfig configures the BuildDB function.
+type BuildConfig struct {
+	OutputDB string // Path to output SQLite database
+	Source   string // "images" or "ha"
+
+	// For images source
+	InputDir     string   // Directory of images with GPS data
+	FilterModels []string // Device models to include (empty = all)
+
+	// For HA source
+	HAURL     string // Home Assistant URL
+	HAToken   string // Home Assistant long-lived access token
+	HADevices string // Comma-separated entity IDs
+	HAStart   string // Start time (RFC3339)
+	HAEnd     string // End time (RFC3339)
+	HADays    int    // Number of days (alternative to start/end)
+	HAAll     bool   // Select all discovered devices
+}
+
+// BuildDB builds a location database from either reference images or Home Assistant.
+func BuildDB(cfg BuildConfig) error {
+	if cfg.Source == "ha" {
+		return buildDBFromHA(cfg)
+	}
+	// Default to images source
+	return buildDBFromImages(cfg)
+}
+
+// buildDBFromImages builds the database from images in inputDir, optionally filtering by device models.
+func buildDBFromImages(cfg BuildConfig) error {
+	if cfg.InputDir == "" {
+		return fmt.Errorf("inputDir is required when source is 'images'")
+	}
+
+	repo, err := database.Connect(cfg.OutputDB)
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
 	}
@@ -97,15 +146,15 @@ func BuildDB(inputDir string, outputDB string, filterModels []string) error {
 
 	// Prepare filter set if needed
 	filterSet := make(map[string]struct{})
-	if len(filterModels) > 0 {
-		for _, m := range filterModels {
+	if len(cfg.FilterModels) > 0 {
+		for _, m := range cfg.FilterModels {
 			filterSet[m] = struct{}{}
 		}
 	}
 
 	count := 0
 	skipped := 0
-	err = filepath.WalkDir(inputDir, func(path string, d fs.DirEntry, err error) error {
+	err = filepath.WalkDir(cfg.InputDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -118,7 +167,7 @@ func BuildDB(inputDir string, outputDB string, filterModels []string) error {
 		}
 		meta, err := exiftool.ReadMetadata(path)
 		if err != nil {
-			logger.Error("Failed to read metadata for %s: %v", path, err)
+			log.Printf("Failed to read metadata for %s: %v\n", path, err)
 			skipped++
 			return nil
 		}
@@ -129,7 +178,7 @@ func BuildDB(inputDir string, outputDB string, filterModels []string) error {
 		}
 		ts, err := meta.GetTimestamp()
 		if err != nil {
-			logger.Warn("No valid timestamp for %s", path)
+			log.Printf("Warning: No valid timestamp for %s\n", path)
 			skipped++
 			return nil
 		}
@@ -154,7 +203,7 @@ func BuildDB(inputDir string, outputDB string, filterModels []string) error {
 			DeviceModel: model,
 		}
 		if err := repo.Insert(context.Background(), entry); err != nil {
-			logger.Warn("Warning: failed to insert location for %s: %v", path, err)
+			log.Printf("Warning: failed to insert location for %s: %v", path, err)
 			skipped++
 		} else {
 			count++
@@ -164,20 +213,22 @@ func BuildDB(inputDir string, outputDB string, filterModels []string) error {
 	if err != nil {
 		return err
 	}
-	logger.Info("Successfully built database at %s with %d entries (skipped %d).", outputDB, count, skipped)
+	fmt.Printf("Successfully built database at %s with %d entries (skipped %d).\n", cfg.OutputDB, count, skipped)
 	return nil
 }
 
-// BuildDBHA builds a location database from Home Assistant.
-func BuildDBHA(ctx context.Context, outputDB, url, token, devices, startStr, endStr string, days int, all bool) error {
+// buildDBFromHA builds a location database from Home Assistant.
+func buildDBFromHA(cfg BuildConfig) error {
+	// Create context for cancellation
+	ctx := context.Background()
 
 	// Trim trailing slash if present
-	url = strings.TrimSuffix(url, "/")
+	url := strings.TrimSuffix(cfg.HAURL, "/")
 
 	// 1. Determine entity IDs
 	var entityIDs []string
-	if devices != "" {
-		parts := strings.Split(devices, ",")
+	if cfg.HADevices != "" {
+		parts := strings.Split(cfg.HADevices, ",")
 		for _, p := range parts {
 			if id := strings.TrimSpace(p); id != "" {
 				entityIDs = append(entityIDs, id)
@@ -186,23 +237,23 @@ func BuildDBHA(ctx context.Context, outputDB, url, token, devices, startStr, end
 		if len(entityIDs) == 0 {
 			return fmt.Errorf("no valid entity IDs provided")
 		}
-	} else if all {
+	} else if cfg.HAAll {
 		// Discover all devices automatically without prompting
-		trackers, err := homeassistant.DiscoverDeviceTrackers(ctx, url, token, nil)
+		trackers, err := homeassistant.DiscoverDeviceTrackers(ctx, url, cfg.HAToken, nil)
 		if err != nil {
 			return fmt.Errorf("failed to discover device trackers: %w", err)
 		}
 		if len(trackers) == 0 {
 			return fmt.Errorf("no device_tracker entities found")
 		}
-		logger.Info("Discovering all %d device_tracker entities...", len(trackers))
+		fmt.Printf("Discovering all %d device_tracker entities...\n", len(trackers))
 		entityIDs = make([]string, len(trackers))
 		for i, t := range trackers {
 			entityIDs[i] = t.EntityID
 		}
 	} else {
 		// Discover devices interactively
-		trackers, err := homeassistant.DiscoverDeviceTrackers(ctx, url, token, nil)
+		trackers, err := homeassistant.DiscoverDeviceTrackers(ctx, url, cfg.HAToken, nil)
 		if err != nil {
 			return fmt.Errorf("failed to discover device trackers: %w", err)
 		}
@@ -219,15 +270,15 @@ func BuildDBHA(ctx context.Context, outputDB, url, token, devices, startStr, end
 	// 2. Determine time range
 	var start, end time.Time
 	var err error
-	if days > 0 {
+	if cfg.HADays > 0 {
 		end = time.Now()
-		start = end.Add(-time.Duration(days) * 24 * time.Hour)
-	} else if startStr != "" && endStr != "" {
-		start, err = time.Parse(time.RFC3339, startStr)
+		start = end.Add(-time.Duration(cfg.HADays) * 24 * time.Hour)
+	} else if cfg.HAStart != "" && cfg.HAEnd != "" {
+		start, err = time.Parse(time.RFC3339, cfg.HAStart)
 		if err != nil {
 			return fmt.Errorf("invalid ha-start: %w", err)
 		}
-		end, err = time.Parse(time.RFC3339, endStr)
+		end, err = time.Parse(time.RFC3339, cfg.HAEnd)
 		if err != nil {
 			return fmt.Errorf("invalid ha-end: %w", err)
 		}
@@ -238,7 +289,7 @@ func BuildDBHA(ctx context.Context, outputDB, url, token, devices, startStr, end
 	}
 
 	// 3. Create HA client
-	client := homeassistant.NewClient(url, token)
+	client := homeassistant.NewClient(url, cfg.HAToken)
 
 	// 4. Fetch location history
 	entries, err := homeassistant.FetchLocationHistory(ctx, client, start, end, entityIDs)
@@ -248,20 +299,20 @@ func BuildDBHA(ctx context.Context, outputDB, url, token, devices, startStr, end
 
 	// 5. Insert into database
 	count := 0
-	repo, err := database.Connect(outputDB)
+	repo, err := database.Connect(cfg.OutputDB)
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
 	}
 	defer repo.Close()
 	for _, e := range entries {
 		if err := repo.Insert(ctx, e); err != nil {
-			logger.Warn("Warning: failed to insert location for %s: %v", e.DeviceModel, err)
+			log.Printf("Warning: failed to insert location for %s: %v", e.DeviceModel, err)
 		} else {
 			count++
 		}
 	}
 
-	logger.Info("Successfully built database at %s with %d entries from Home Assistant.", outputDB, count)
+	fmt.Printf("Successfully built database at %s with %d entries from Home Assistant.\n", cfg.OutputDB, count)
 	return nil
 }
 
@@ -294,28 +345,28 @@ func TagImages(rawDir string, dbPath string, dryRun bool, priorityDevices []stri
 
 		meta, err := exiftool.ReadMetadata(path)
 		if err != nil {
-			logger.Error("Failed to read metadata for %s: %v", path, err)
+			log.Printf("Failed to read metadata for %s: %v\n", path, err)
 			skipped++
 			return nil
 		}
 
 		// Skip if it already has GPS tags
 		if meta.GPSLatitude != nil && meta.GPSLongitude != nil {
-			logger.Info("Skipping %s (already has GPS data)", path)
+			fmt.Printf("Skipping %s (already has GPS data)\n", path)
 			skipped++
 			return nil
 		}
 
 		ts, err := meta.GetTimestamp()
 		if err != nil {
-			logger.Warn("No valid timestamp for %s", path)
+			log.Printf("Warning: No valid timestamp for %s\n", path)
 			skipped++
 			return nil
 		}
 
 		match, err := provider.FindBestMatch(context.Background(), ts, priorityDevices)
 		if err != nil {
-			logger.Warn("No match found for %s (time: %s): %v", path, ts, err)
+			log.Printf("No match found for %s (time: %s): %v\n", path, ts, err)
 			skipped++
 			return nil
 		}
@@ -324,10 +375,10 @@ func TagImages(rawDir string, dbPath string, dryRun bool, priorityDevices []stri
 		newMeta := copyLocationEntry(match)
 
 		if err := exiftool.WriteMetadata(path, newMeta, dryRun); err != nil {
-			logger.Error("Failed to write metadata to %s: %v", path, err)
+			log.Printf("Failed to write metadata to %s: %v\n", path, err)
 		} else {
 			if !dryRun {
-				logger.Info("Successfully tagged %s with location from %s (time diff: %v)", path, match.DeviceModel, match.Timestamp.Sub(ts))
+				fmt.Printf("Successfully tagged %s with location from %s (time diff: %v)\n", path, match.DeviceModel, match.Timestamp.Sub(ts))
 			}
 			count++
 		}
@@ -340,9 +391,9 @@ func TagImages(rawDir string, dbPath string, dryRun bool, priorityDevices []stri
 	}
 
 	if dryRun {
-		logger.Info("Dry run complete. Would have tagged %d images (skipped %d)", count, skipped)
+		fmt.Printf("Dry run complete. Would have tagged %d images (skipped %d)\n", count, skipped)
 	} else {
-		logger.Info("Tagging complete. Successfully tagged %d images (skipped %d)", count, skipped)
+		fmt.Printf("Tagging complete. Successfully tagged %d images (skipped %d)\n", count, skipped)
 	}
 	return nil
 }

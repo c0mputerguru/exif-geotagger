@@ -99,18 +99,18 @@ func TestEndToEnd_HAtoTagImages(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "ha.db")
 
 	// 1. Build DB from HA source using -source=ha equivalent
-	// Call BuildDBHA with explicit devices and time range
-	err := BuildDBHA(
-		context.Background(),
-		dbPath,
-		server.URL,
-		"test-token",
-		"device_tracker.iphone",
-		"2023-10-01T00:00:00Z",
-		"2023-10-02T00:00:00Z",
-		0,
-		false,
-	)
+	// Call BuildDB with HA configuration
+	err := BuildDB(BuildConfig{
+		OutputDB:  dbPath,
+		Source:    "ha",
+		HAURL:     server.URL,
+		HAToken:   "test-token",
+		HADevices: "device_tracker.iphone",
+		HAStart:   "2023-10-01T00:00:00Z",
+		HAEnd:     "2023-10-02T00:00:00Z",
+		HADays:    0,
+		HAAll:     false,
+	})
 	if err != nil {
 		t.Fatalf("BuildDBHA failed: %v", err)
 	}
