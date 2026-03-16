@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/abpatel/exif-geotagger/pkg/logger"
 )
 
 // Retry configuration for transient errors
@@ -216,7 +218,7 @@ func WriteMetadata(filePath string, meta Metadata, dryRun bool) error {
 	args = append(args, filePath)
 
 	if dryRun {
-		fmt.Printf("[DRY RUN] Would write to %s: %s\n", filePath, strings.Join(args[:len(args)-1], " "))
+		logger.Info("[DRY RUN] Would write to %s: %s", filePath, strings.Join(args[:len(args)-1], " "))
 		return nil
 	}
 

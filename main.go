@@ -11,6 +11,7 @@ import (
 
 	"github.com/AlecAivazis/survey/v2"
 	"github.com/abpatel/exif-geotagger/pkg/database"
+	"github.com/abpatel/exif-geotagger/pkg/logger"
 	"github.com/abpatel/exif-geotagger/pkg/processor"
 )
 
@@ -61,7 +62,7 @@ func main() {
 		// Backward compatibility: if -source is not provided or is "images", require -input
 		if *source == "images" || *source == "" {
 			if *inputDir == "" {
-				fmt.Println("Error: -input directory is required when source is 'images'")
+				logger.Error("Error: -input directory is required when source is 'images'")
 				buildDBCmd.Usage()
 				exitCode = 1
 				break
@@ -71,8 +72,9 @@ func main() {
 		if *source == "ha" {
 			// Call BuildDBHA with HA parameters
 			if err := processor.BuildDBHA(*outputDB, *haURL, *haToken, *haDevices, *haStart, *haEnd, *haDays, *all); err != nil {
-				fmt.Printf("Error building database from Home Assistant: %v\n", err)
+				logger.Error("Error building database from Home Assistant: %v", err)
 				exitCode = 1
+				break
 			}
 		} else {
 			// Images source: determine device filter from flags or interactive discovery
@@ -88,12 +90,12 @@ func main() {
 				// Interactive device discovery
 				devices, err := processor.DiscoverDevices(*inputDir)
 				if err != nil {
-					fmt.Printf("Error discovering devices: %v\n", err)
+					logger.Error("Error discovering devices: %v", err)
 					exitCode = 1
 					break
 				}
 				if len(devices) == 0 {
-					fmt.Println("No devices with GPS data found in the input directory.")
+					logger.Info("No devices with GPS data found in the input directory.")
 					exitCode = 1
 					break
 				}
@@ -124,7 +126,7 @@ func main() {
 					Options: optionList,
 				}, &selectedDisplays)
 				if err != nil {
-					fmt.Printf("Error during device selection: %v\n", err)
+					logger.Error("Error during device selection: %v", err)
 					exitCode = 1
 					break
 				}
@@ -134,7 +136,7 @@ func main() {
 					deviceFilter[i] = displayToModel[disp]
 				}
 				if len(deviceFilter) == 0 {
-					fmt.Println("No devices selected. Exiting.")
+					logger.Info("No devices selected. Exiting.")
 					exitCode = 0
 					break
 				}
@@ -142,7 +144,7 @@ func main() {
 
 			if exitCode == 0 { // Only proceed if no error occurred
 				if err := processor.BuildDB(*inputDir, *outputDB, deviceFilter); err != nil {
-					fmt.Printf("Error building database: %v\n", err)
+					logger.Error("Error building database: %v", err)
 					exitCode = 1
 				}
 			}
@@ -155,6 +157,7 @@ func main() {
 		printDbCmd.Parse(os.Args[2:])
 
 		if err := printDatabase(*dbPath); err != nil {
+			logger.Error("Error printing database: %v", err)
 			exitCode = 1
 		}
 
@@ -168,7 +171,7 @@ func main() {
 		tagImagesCmd.Parse(os.Args[2:])
 
 		if *rawDir == "" {
-			fmt.Println("Error: -raw-dir directory is required")
+			logger.Error("Error: -raw-dir directory is required")
 			tagImagesCmd.Usage()
 			exitCode = 1
 		} else {
@@ -181,13 +184,13 @@ func main() {
 			}
 
 			if err := processor.TagImages(*rawDir, *dbPath, *dryRun, priorityDevicesList); err != nil {
-				fmt.Printf("Error tagging images: %v\n", err)
+				logger.Error("Error tagging images: %v", err)
 				exitCode = 1
 			}
 		}
 
 	default:
-		fmt.Printf("Unknown command: %s\n", os.Args[1])
+		logger.Error("Unknown command: %s", os.Args[1])
 		printUsage()
 		exitCode = 1
 	}

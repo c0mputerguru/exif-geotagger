@@ -6,12 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/url"
 	"strings"
 	"time"
 
 	"github.com/abpatel/exif-geotagger/pkg/database"
+	"github.com/abpatel/exif-geotagger/pkg/logger"
 )
 
 // Custom error types for parseLocationFromState failures
@@ -115,9 +115,9 @@ func FetchLocationHistory(ctx context.Context, client Client, start, end time.Ti
 		totalSkipped += count
 	}
 	if totalSkipped > 0 {
-		log.Printf("Skipped %d location entries:", totalSkipped)
+		logger.Warn("Skipped %d location entries:", totalSkipped)
 		for reason, count := range skipCounts {
-			log.Printf("  - %s: %d", reason, count)
+			logger.Warn("  - %s: %d", reason, count)
 		}
 	}
 

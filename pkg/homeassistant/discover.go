@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/abpatel/exif-geotagger/pkg/logger"
 )
 
 // DeviceTracker represents a device_tracker entity from Home Assistant.
@@ -99,7 +101,7 @@ func SelectDeviceTrackersInteractive(trackers []DeviceTracker) ([]string, error)
 	}
 
 	// UI: Display the list
-	fmt.Println("Discovered device_tracker entities:")
+	logger.Info("Discovered device_tracker entities:")
 	for i, t := range trackers {
 		name := t.FriendlyName
 		if name == "" {
@@ -113,7 +115,7 @@ func SelectDeviceTrackersInteractive(trackers []DeviceTracker) ([]string, error)
 			builder.WriteByte(')')
 			lastSeen = builder.String()
 		}
-		fmt.Printf("%d. %s%s (%s)\n", i+1, name, lastSeen, t.EntityID)
+		logger.Info("%d. %s%s (%s)", i+1, name, lastSeen, t.EntityID)
 	}
 
 	// UI: Prompt and read input
@@ -138,7 +140,7 @@ func SelectDeviceTrackersInteractive(trackers []DeviceTracker) ([]string, error)
 		idx, err := strconv.Atoi(idxStr)
 		if err != nil || idx < 1 || idx > len(trackers) {
 			// UI: report invalid selection
-			fmt.Fprintf(os.Stderr, "Invalid selection: %s\n", idxStr)
+			logger.Error("Invalid selection: %s", idxStr)
 			continue
 		}
 		indices = append(indices, idx)
