@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"os"
 	"strings"
 
@@ -9,7 +10,9 @@ import (
 	"github.com/abpatel/exif-geotagger/pkg/processor"
 )
 
-func runBuildDB() {
+// parseBuildDBArgs parses command line arguments and returns a BuildConfig.
+// It handles all flag definitions, parsing, and validation.
+func parseBuildDBArgs(args []string) (*processor.BuildConfig, error) {
 	buildDBCmd := flag.NewFlagSet("build-db", flag.ExitOnError)
 	inputDir := buildDBCmd.String("input", "", "Directory containing reference images with GPS data")
 	outputDB := buildDBCmd.String("output", "db.sqlite", "Path to output SQLite database")
@@ -23,19 +26,12 @@ func runBuildDB() {
 	all := buildDBCmd.Bool("all", false, "Select all discovered devices (images source only)")
 	models := buildDBCmd.String("models", "", "Comma-separated list of device models to include (for images source)")
 
-	buildDBCmd.Parse(os.Args[2:])
-
-	// Backward compatibility: if -source is not provided or is "images", require -input
-	if *source == "images" || *source == "" {
-		if *inputDir == "" {
-			logger.Error("Error: -input directory is required when source is 'images'")
-			buildDBCmd.Usage()
-			os.Exit(1)
-		}
+	if err := buildDBCmd.Parse(args); err != nil {
+		return nil, err
 	}
 
 	// Build config
-	cfg := processor.BuildConfig{
+	cfg := &processor.BuildConfig{
 		OutputDB: *outputDB,
 		Source:   *source,
 		// HA config
@@ -48,11 +44,21 @@ func runBuildDB() {
 		HAAll:     *all,
 	}
 
+	// Validation
 	if *source == "ha" {
-		// For HA source, validation happens in buildDBFromHA
-		// (requires HAURL and HAToken)
+		// For HA source, validation will happen in buildDBFromHA
+		// But we need at least URL and token for basic validation
+		if *haURL == "" {
+			return nil, fmt.Errorf("-ha-url is required for HA source")
+		}
+		if *haToken == "" {
+			return nil, fmt.Errorf("-ha-token is required for HA source")
+		}
 	} else if *source == "images" {
-		// Images source: only pull device filters from command line (FilterModels)
+		// Images source: require -input
+		if *inputDir == "" {
+			return nil, fmt.Errorf("-input directory is required when source is 'images'")
+		}
 		cfg.InputDir = *inputDir
 		if *all {
 			// -all: FilterModels stays nil => include all devices
@@ -60,17 +66,28 @@ func runBuildDB() {
 			// Use -models flag to filter specific device models
 			parts := strings.Split(*models, ",")
 			for _, p := range parts {
-				cfg.FilterModels = append(cfg.FilterModels, strings.TrimSpace(p))
+				trimmed := strings.TrimSpace(p)
+				if trimmed != "" {
+					cfg.FilterModels = append(cfg.FilterModels, trimmed)
+				}
 			}
 		}
 		// If neither -all nor -models provided, FilterModels stays nil => all devices
 	} else {
-		logger.Error("Error: invalid source '%s'. Must be 'images' or 'ha'", *source)
-		buildDBCmd.Usage()
+		return nil, fmt.Errorf("invalid source '%s'. Must be 'images' or 'ha'", *source)
+	}
+
+	return cfg, nil
+}
+
+func runBuildDB() {
+	cfg, err := parseBuildDBArgs(os.Args[2:])
+	if err != nil {
+		logger.Error("Error: %v", err)
 		os.Exit(1)
 	}
 
-	if err := processor.BuildDB(cfg); err != nil {
+	if err := processor.BuildDB(*cfg); err != nil {
 		logger.Error("Error building database: %v", err)
 		os.Exit(1)
 	}
