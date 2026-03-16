@@ -16,11 +16,12 @@ func runBuildDB() {
 	source := buildDBCmd.String("source", "images", "Data source: 'images' or 'ha'")
 	haURL := buildDBCmd.String("ha-url", "", "Home Assistant URL")
 	haToken := buildDBCmd.String("ha-token", "", "Home Assistant long-lived access token")
-	haDevices := buildDBCmd.String("ha-devices", "", "Comma-separated list of device entity IDs")
+	haDevices := buildDBCmd.String("ha-devices", "", "Comma-separated list of device entity IDs (for HA source)")
 	haStart := buildDBCmd.String("ha-start", "", "Start time for HA history (RFC3339)")
 	haEnd := buildDBCmd.String("ha-end", "", "End time for HA history (RFC3339)")
 	haDays := buildDBCmd.Int("ha-days", 0, "Number of days of history (alternative to start/end)")
-	all := buildDBCmd.Bool("all", false, "Select all discovered devices")
+	all := buildDBCmd.Bool("all", false, "Select all discovered devices (images source only)")
+	models := buildDBCmd.String("models", "", "Comma-separated list of device models to include (for images source)")
 
 	buildDBCmd.Parse(os.Args[2:])
 
@@ -55,14 +56,14 @@ func runBuildDB() {
 		cfg.InputDir = *inputDir
 		if *all {
 			// -all: FilterModels stays nil => include all devices
-		} else if *haDevices != "" {
-			// Use -ha-devices flag to filter specific device models
-			parts := strings.Split(*haDevices, ",")
+		} else if *models != "" {
+			// Use -models flag to filter specific device models
+			parts := strings.Split(*models, ",")
 			for _, p := range parts {
 				cfg.FilterModels = append(cfg.FilterModels, strings.TrimSpace(p))
 			}
 		}
-		// If neither -all nor -ha-devices provided, FilterModels stays nil => all devices
+		// If neither -all nor -models provided, FilterModels stays nil => all devices
 	} else {
 		logger.Error("Error: invalid source '%s'. Must be 'images' or 'ha'", *source)
 		buildDBCmd.Usage()
