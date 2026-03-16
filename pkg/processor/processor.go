@@ -317,14 +317,14 @@ func buildDBFromHA(cfg BuildConfig) error {
 }
 
 // TagImages tags raw images with GPS data from the database.
-func TagImages(rawDir string, dbPath string, dryRun bool, priorityDevices []string) error {
+func TagImages(rawDir string, dbPath string, dryRun bool, priorityDevices []string, opts matcher.ProviderOptions) error {
 	repo, err := database.Connect(dbPath)
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
 	}
 	defer repo.Close()
 
-	provider := matcher.NewSQLiteLocationProvider(repo)
+	provider := matcher.NewSQLiteLocationProvider(repo, opts)
 
 	count := 0
 	skipped := 0

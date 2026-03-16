@@ -20,6 +20,7 @@ import (
 	"github.com/abpatel/exif-geotagger/pkg/database"
 	"github.com/abpatel/exif-geotagger/pkg/exiftool"
 	"github.com/abpatel/exif-geotagger/pkg/homeassistant"
+	"github.com/abpatel/exif-geotagger/pkg/matcher"
 )
 
 // mockHAServer creates an httptest.Server that mocks the Home Assistant API endpoints.
@@ -141,7 +142,7 @@ func TestEndToEnd_HAtoTagImages(t *testing.T) {
 	rawImg := createRawImage(t, rawDir, "photo.jpg", imgTime)
 
 	// 3. Run tag-images
-	err = TagImages(rawDir, dbPath, false, nil)
+	err = TagImages(rawDir, dbPath, false, nil, matcher.DefaultProviderOptions())
 	if err != nil {
 		t.Fatalf("TagImages error: %v", err)
 	}
