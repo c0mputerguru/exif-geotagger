@@ -26,18 +26,33 @@ import (
 // mockHAServer creates an httptest.Server that mocks the Home Assistant API endpoints.
 func mockHAServer(t *testing.T) *httptest.Server {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Only handle history endpoint; config not needed
+		// Check auth for protected endpoints
+		auth := r.Header.Get("Authorization")
+		if auth != "Bearer test-token" {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
 		if r.URL.Path == "/api/config" {
 			fmt.Fprint(w, `{"timezone":"UTC"}`)
 			return
 		}
-		if strings.HasPrefix(r.URL.Path, "/api/history/period/") {
-			// Check auth
-			auth := r.Header.Get("Authorization")
-			if auth != "Bearer test-token" {
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
-				return
+		if r.URL.Path == "/api/states" {
+			// Return mock states including a device_tracker entity
+			states := []homeassistant.StateResponse{
+				{
+					EntityID:    "device_tracker.iphone",
+					State:       "home",
+					Attributes:  map[string]interface{}{"friendly_name": "iPhone"},
+					LastChanged: "2023-10-01T12:00:00Z",
+					LastUpdated: "2023-10-01T12:00:00Z",
+				},
 			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(states)
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/api/history/period/") {
 			// Return mock history: two entries for device_tracker.iphone
 			resp := [][]homeassistant.HAState{
 				{
@@ -362,5 +377,305 @@ func TestEndToEnd_BuildDBFromImages_WithFilter(t *testing.T) {
 	}
 	if entries[0].DeviceModel != "iPhone 14 Pro" {
 		t.Errorf("expected iPhone 14 Pro, got %s", entries[0].DeviceModel)
+	}
+}
+
+// TestBuildDBFromImages_WithAllFlag tests that when FilterModels is empty (no filter),
+// all device models from images are included (equivalent to -all flag behavior).
+func TestBuildDBFromImages_WithAllFlag(t *testing.T) {
+	imagesDir := t.TempDir()
+	dbPath := filepath.Join(t.TempDir(), "all.db")
+
+	// Create images from two different models
+	img1Time := time.Date(2023, 10, 1, 12, 0, 0, 0, time.UTC)
+	createImageWithGPS(t, imagesDir, "iphone.jpg", 37.7749, -122.4194, 15.2, img1Time, "iPhone 14 Pro")
+
+	img2Time := time.Date(2023, 10, 1, 13, 0, 0, 0, time.UTC)
+	createImageWithGPS(t, imagesDir, "pixel.jpg", 37.7750, -122.4195, 20.1, img2Time, "Pixel 8")
+
+	// Build database without FilterModels (empty slice) - should include all
+	err := BuildDB(BuildConfig{
+		OutputDB: dbPath,
+		Source:   "images",
+		InputDir: imagesDir,
+		// FilterModels: nil (empty) means include all
+	})
+	if err != nil {
+		t.Fatalf("BuildDB failed: %v", err)
+	}
+
+	// Verify both entries were added
+	repo, err := database.Connect(dbPath)
+	if err != nil {
+		t.Fatalf("connect DB: %v", err)
+	}
+	defer repo.Close()
+	entries, err := repo.GetAll(context.Background())
+	if err != nil {
+		t.Fatalf("get all entries: %v", err)
+	}
+
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 entries (all devices), got %d", len(entries))
+	}
+
+	modelsCount := make(map[string]int)
+	for _, e := range entries {
+		modelsCount[e.DeviceModel]++
+	}
+	if modelsCount["iPhone 14 Pro"] != 1 {
+		t.Errorf("expected 1 iPhone 14 Pro, got %d", modelsCount["iPhone 14 Pro"])
+	}
+	if modelsCount["Pixel 8"] != 1 {
+		t.Errorf("expected 1 Pixel 8, got %d", modelsCount["Pixel 8"])
+	}
+}
+
+// TestBuildDBFromImages_ErrorMissingInputDir tests that BuildDB returns an error
+// when InputDir is empty for images source.
+func TestBuildDBFromImages_ErrorMissingInputDir(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "error.db")
+
+	err := BuildDB(BuildConfig{
+		OutputDB: dbPath,
+		Source:   "images",
+		// InputDir is empty
+	})
+	if err == nil {
+		t.Fatal("expected error for missing InputDir, got nil")
+	}
+	if !strings.Contains(err.Error(), "inputDir is required") {
+		t.Errorf("error message should mention inputDir requirement, got: %v", err)
+	}
+}
+
+// TestBuildDB_InvalidSource tests that BuildDB returns an error for an invalid source.
+// Since non-ha source defaults to images, the error will be about missing InputDir.
+func TestBuildDB_InvalidSource(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "invalid.db")
+
+	err := BuildDB(BuildConfig{
+		OutputDB: dbPath,
+		Source:   "invalid",
+	})
+	if err == nil {
+		t.Fatal("expected error for invalid source, got nil")
+	}
+	// The invalid source defaults to images, which requires InputDir
+	if !strings.Contains(err.Error(), "inputDir is required") {
+		t.Errorf("error should mention inputDir requirement, got: %v", err)
+	}
+}
+
+// TestBuildDBFromHA_ErrorMissingCredentials tests that BuildDB returns an error
+// when HAURL or HAToken is empty for HA source.
+func TestBuildDBFromHA_ErrorMissingCredentials(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "ha.db")
+
+	// Missing URL
+	err := BuildDB(BuildConfig{
+		OutputDB: dbPath,
+		Source:   "ha",
+		HAToken:  "token",
+	})
+	if err == nil {
+		t.Fatal("expected error for missing HAURL, got nil")
+	}
+
+	// Missing token
+	err = BuildDB(BuildConfig{
+		OutputDB: dbPath,
+		Source:   "ha",
+		HAURL:    "http://ha",
+	})
+	if err == nil {
+		t.Fatal("expected error for missing HAToken, got nil")
+	}
+}
+
+// TestBuildDBFromHA_WithAllDevicesFlag tests HA source with HADevices empty and HAAll=true,
+// which should discover all device_tracker entities.
+func TestBuildDBFromHA_WithAllDevicesFlag(t *testing.T) {
+	// Use mock HA server
+	server := mockHAServer(t)
+	defer server.Close()
+
+	dbPath := filepath.Join(t.TempDir(), "ha_all.db")
+
+	// Build with HAAll=true and no HADevices specified
+	err := BuildDB(BuildConfig{
+		OutputDB: dbPath,
+		Source:   "ha",
+		HAURL:    server.URL,
+		HAToken:  "test-token",
+		HAAll:    true,
+	})
+	if err != nil {
+		t.Fatalf("BuildDB from HA with -all failed: %v", err)
+	}
+
+	// Verify DB has entries (the mock server returns 2 entries for device_tracker.iphone)
+	repo, err := database.Connect(dbPath)
+	if err != nil {
+		t.Fatalf("connect DB: %v", err)
+	}
+	defer repo.Close()
+	entries, err := repo.GetAll(context.Background())
+	if err != nil {
+		t.Fatalf("get all entries: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 entries from HA -all, got %d", len(entries))
+	}
+}
+
+// TestBuildDBFromHA_WithDaysFlag tests HA source with -ha-days flag.
+func TestBuildDBFromHA_WithDaysFlag(t *testing.T) {
+	server := mockHAServer(t)
+	defer server.Close()
+
+	dbPath := filepath.Join(t.TempDir(), "ha_days.db")
+
+	// Build with HADays=7 (last 7 days)
+	err := BuildDB(BuildConfig{
+		OutputDB:  dbPath,
+		Source:    "ha",
+		HAURL:     server.URL,
+		HAToken:   "test-token",
+		HADevices: "device_tracker.iphone",
+		HADays:    7,
+		// HAStart and HAEnd should be ignored when HADays is set
+	})
+	if err != nil {
+		t.Fatalf("BuildDB from HA with -days failed: %v", err)
+	}
+
+	// Verify DB contains entries (mock server returns data regardless of dates, so we just check it succeeded)
+	repo, err := database.Connect(dbPath)
+	if err != nil {
+		t.Fatalf("connect DB: %v", err)
+	}
+	defer repo.Close()
+	entries, err := repo.GetAll(context.Background())
+	if err != nil {
+		t.Fatalf("get all entries: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 entries from HA with days flag, got %d", len(entries))
+	}
+}
+
+// TestBuildDBFromHA_ErrorInvalidTimeRange tests that BuildDB returns an error
+// when ha-start or ha-end have invalid RFC3339 format.
+func TestBuildDBFromHA_ErrorInvalidTimeRange(t *testing.T) {
+	server := mockHAServer(t)
+	defer server.Close()
+
+	dbPath := filepath.Join(t.TempDir(), "ha_invalid.db")
+
+	// Invalid start format
+	err := BuildDB(BuildConfig{
+		OutputDB:  dbPath,
+		Source:    "ha",
+		HAURL:     server.URL,
+		HAToken:   "test-token",
+		HADevices: "device_tracker.iphone",
+		HAStart:   "not-a-date",
+		HAEnd:     "2023-10-02T00:00:00Z",
+	})
+	if err == nil {
+		t.Fatal("expected error for invalid ha-start format, got nil")
+	}
+	if !strings.Contains(err.Error(), "invalid ha-start") {
+		t.Errorf("error should mention invalid ha-start, got: %v", err)
+	}
+
+	// Invalid end format
+	err = BuildDB(BuildConfig{
+		OutputDB:  dbPath,
+		Source:    "ha",
+		HAURL:     server.URL,
+		HAToken:   "test-token",
+		HADevices: "device_tracker.iphone",
+		HAStart:   "2023-10-01T00:00:00Z",
+		HAEnd:     "invalid",
+	})
+	if err == nil {
+		t.Fatal("expected error for invalid ha-end format, got nil")
+	}
+	if !strings.Contains(err.Error(), "invalid ha-end") {
+		t.Errorf("error should mention invalid ha-end, got: %v", err)
+	}
+}
+
+// TestBuildDB_UpsertSemantics tests that running BuildDB twice with overlapping
+// data updates existing entries rather than creating duplicates.
+func TestBuildDB_UpsertSemantics(t *testing.T) {
+	imagesDir := t.TempDir()
+	dbPath := filepath.Join(t.TempDir(), "upsert.db")
+
+	// Create first image
+	imgTime := time.Date(2023, 10, 1, 12, 0, 0, 0, time.UTC)
+	createImageWithGPS(t, imagesDir, "iphone1.jpg", 37.7749, -122.4194, 15.2, imgTime, "iPhone 14 Pro")
+
+	// First build
+	err := BuildDB(BuildConfig{
+		OutputDB: dbPath,
+		Source:   "images",
+		InputDir: imagesDir,
+	})
+	if err != nil {
+		t.Fatalf("first BuildDB failed: %v", err)
+	}
+
+	// Create another image with same timestamp and device (should update) and a new one
+	createImageWithGPS(t, imagesDir, "iphone1_updated.jpg", 37.7755, -122.4200, 18.3, imgTime, "iPhone 14 Pro")
+	img2Time := time.Date(2023, 10, 1, 13, 0, 0, 0, time.UTC)
+	createImageWithGPS(t, imagesDir, "iphone2.jpg", 37.7760, -122.4210, 22.1, img2Time, "iPhone 14 Pro")
+
+	// Second build (should upsert)
+	err = BuildDB(BuildConfig{
+		OutputDB: dbPath,
+		Source:   "images",
+		InputDir: imagesDir,
+	})
+	if err != nil {
+		t.Fatalf("second BuildDB failed: %v", err)
+	}
+
+	// Verify database: should have 2 unique timestamps, with first timestamp having updated location
+	repo, err := database.Connect(dbPath)
+	if err != nil {
+		t.Fatalf("connect DB: %v", err)
+	}
+	defer repo.Close()
+	entries, err := repo.GetAll(context.Background())
+	if err != nil {
+		t.Fatalf("get all entries: %v", err)
+	}
+
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 unique entries after upsert, got %d", len(entries))
+	}
+
+	// Find entry for imgTime
+	var firstEntry *database.LocationEntry
+	for i := range entries {
+		e := entries[i]
+		if e.Timestamp.Equal(imgTime) && e.DeviceModel == "iPhone 14 Pro" {
+			firstEntry = &e
+			break
+		}
+	}
+	if firstEntry == nil {
+		t.Fatal("missing entry for first timestamp after upsert")
+	}
+	// Should reflect updated coordinates from iphone1_updated.jpg
+	if firstEntry.Latitude != 37.7755 || firstEntry.Longitude != -122.4200 {
+		t.Errorf("after upsert, location should be updated: got (%f, %f), want (37.7755, -122.4200)",
+			firstEntry.Latitude, firstEntry.Longitude)
+	}
+	if *firstEntry.Altitude != 18.3 {
+		t.Errorf("after upsert, altitude should be updated: got %f, want 18.3", *firstEntry.Altitude)
 	}
 }
