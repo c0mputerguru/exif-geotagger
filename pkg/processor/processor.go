@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
-	"log"
 	"path/filepath"
 	"strings"
 	"time"
@@ -12,6 +11,7 @@ import (
 	"github.com/abpatel/exif-geotagger/pkg/database"
 	"github.com/abpatel/exif-geotagger/pkg/exiftool"
 	"github.com/abpatel/exif-geotagger/pkg/homeassistant"
+	"github.com/abpatel/exif-geotagger/pkg/logger"
 	"github.com/abpatel/exif-geotagger/pkg/matcher"
 	"github.com/abpatel/exif-geotagger/pkg/urlutil"
 )
@@ -178,7 +178,7 @@ func buildDBFromImages(ctx context.Context, cfg BuildConfig) error {
 		}
 		meta, err := exiftool.ReadMetadata(path)
 		if err != nil {
-			log.Printf("Failed to read metadata for %s: %v\n", path, err)
+			logger.Error("Failed to read metadata for %s: %v", path, err)
 			skipped++
 			return nil
 		}
@@ -189,7 +189,7 @@ func buildDBFromImages(ctx context.Context, cfg BuildConfig) error {
 		}
 		ts, err := meta.GetTimestamp()
 		if err != nil {
-			log.Printf("Warning: No valid timestamp for %s\n", path)
+			logger.Warn("Warning: No valid timestamp for %s", path)
 			skipped++
 			return nil
 		}
@@ -214,7 +214,7 @@ func buildDBFromImages(ctx context.Context, cfg BuildConfig) error {
 			DeviceModel: model,
 		}
 		if err := repo.Insert(ctx, entry); err != nil {
-			log.Printf("Warning: failed to insert location for %s: %v", path, err)
+			logger.Warn("Warning: failed to insert location for %s: %v", path, err)
 			skipped++
 		} else {
 			count++
@@ -315,7 +315,7 @@ func buildDBFromHA(ctx context.Context, cfg BuildConfig) error {
 	defer repo.Close()
 	for _, e := range entries {
 		if err := repo.Insert(ctx, e); err != nil {
-			log.Printf("Warning: failed to insert location for %s: %v", e.DeviceModel, err)
+			logger.Warn("Warning: failed to insert location for %s: %v", e.DeviceModel, err)
 		} else {
 			count++
 		}
@@ -353,7 +353,7 @@ func TagImages(ctx context.Context, rawDir string, dbPath string, dryRun bool, p
 
 		meta, err := exiftool.ReadMetadata(path)
 		if err != nil {
-			log.Printf("Failed to read metadata for %s: %v\n", path, err)
+			logger.Error("Failed to read metadata for %s: %v", path, err)
 			skipped++
 			return nil
 		}
@@ -367,14 +367,14 @@ func TagImages(ctx context.Context, rawDir string, dbPath string, dryRun bool, p
 
 		ts, err := meta.GetTimestamp()
 		if err != nil {
-			log.Printf("Warning: No valid timestamp for %s\n", path)
+			logger.Warn("Warning: No valid timestamp for %s", path)
 			skipped++
 			return nil
 		}
 
 		match, err := provider.FindBestMatch(ctx, ts, priorityDevices)
 		if err != nil {
-			log.Printf("No match found for %s (time: %s): %v\n", path, ts, err)
+			logger.Warn("No match found for %s (time: %s): %v", path, ts, err)
 			skipped++
 			return nil
 		}
@@ -383,7 +383,7 @@ func TagImages(ctx context.Context, rawDir string, dbPath string, dryRun bool, p
 		newMeta := copyLocationEntry(match)
 
 		if err := exiftool.WriteMetadata(path, newMeta, dryRun); err != nil {
-			log.Printf("Failed to write metadata to %s: %v\n", path, err)
+			logger.Error("Failed to write metadata to %s: %v", path, err)
 		} else {
 			if !dryRun {
 				fmt.Printf("Successfully tagged %s with location from %s (time diff: %v)\n", path, match.DeviceModel, match.Timestamp.Sub(ts))
