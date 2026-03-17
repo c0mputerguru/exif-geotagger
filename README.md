@@ -56,6 +56,7 @@ exif-geotagger <command> [options]
 
 Available commands:
 - `build-db` - Build a location database from reference images
+- `print-db` - Print database contents as JSON
 - `tag-images` - Tag raw images with GPS data from the database
 
 ### Building the Database
@@ -66,9 +67,16 @@ Extract GPS metadata from a directory of reference images (e.g., photos from a p
 exif-geotagger build-db -input /path/to/reference/images -output db.sqlite
 ```
 
+The `build-db` command supports two data sources: local images (default) and Home Assistant. Use the `-source` flag to choose between them.
+
 **Options:**
-- `-input` (required): Directory containing reference images with GPS data
+- `-input` (required when `-source=images`): Directory containing reference images with GPS data
 - `-output` (optional): Path to output SQLite database (default: `db.sqlite`)
+- `-source` (optional): Data source: `images` (default) or `ha`
+- `-all` (optional, images source only): Discover and include all device models automatically
+- `-models` (optional, images source only): Comma-separated list of device models to include (e.g., `-models "iPhone 14 Pro,Pixel 8"`)
+
+For the `ha` source, additional flags are required; see below.
 
 The tool walks the input directory recursively, processing files with extensions: `.jpg`, `.jpeg`, `.heic`, `.png`. Only images with valid GPS coordinates are added to the database.
 
@@ -261,6 +269,9 @@ exif-geotagger tag-images -raw-dir /path/to/raw/images -db db.sqlite
 - `-db` (optional): Path to SQLite database (default: `db.sqlite`)
 - `-dry-run` (optional): Preview changes without writing metadata (default: false)
 - `-priority-devices` (optional): Comma-separated list of device models to prioritize (e.g., `-priority-devices "iPhone,Pixel"`)
+- `-search-window` (optional): Search window duration (default: `12h`). Accepts durations like `12h`, `30m`.
+- `-time-threshold` (optional): Maximum acceptable time difference (default: `6h`). Accepts durations.
+- `-priority-multiplier` (optional): Score multiplier for priority devices (default: `5.0`).
 
 The tool supports raw formats: `.cr2`, `.cr3`, `.nef`, `.arw`, `.dng`, and also `.jpg`. Images that already have GPS tags are skipped.
 
@@ -278,6 +289,19 @@ exif-geotagger tag-images -raw-dir ~/Photos/RAW -db ~/geotag-db.sqlite -dry-run 
 ```bash
 exif-geotagger tag-images -raw-dir ~/Photos/RAW 2>&1 | tee tagging.log
 ```
+
+### Print Database
+
+Print all entries in the database as JSON:
+
+```bash
+exif-geotagger print-db -db db.sqlite
+```
+
+**Options:**
+- `-db` (optional): Path to SQLite database (default: `db.sqlite`)
+
+The output is JSON with an array of location entries, each containing timestamp, latitude, longitude, altitude, city, state, country, and device_model.
 
 ## Configuration
 
@@ -316,22 +340,22 @@ Core orchestration package.
 ```go
 // BuildDB builds a location database from either reference images or Home Assistant.
 // Parameters:
-//   inputDir - directory of images (used when source="images")
-//   outputDB - path to output SQLite database
-//   source - data source: "images" or "ha"
-//   haURL, haToken, haDevices, haStart, haEnd, haDays - HA parameters (used when source="ha")
+//   - ctx: context.Context for cancellation and timeout
+//   - cfg: BuildConfig containing all configuration options
 // Returns error if database creation fails.
-func BuildDB(inputDir, outputDB, source, haURL, haToken, haDevices, haStart, haEnd string, haDays int) error
+func BuildDB(ctx context.Context, cfg BuildConfig) error
 
 // TagImages processes a directory of raw images and applies GPS metadata
 // from the database based on timestamp matching.
 // Parameters:
-//   rawDir - directory containing raw images
-//   dbPath - path to SQLite database
-//   dryRun - if true, only preview changes without writing
-//   priorityDevices - list of device model substrings to prioritize in matching
+//   - ctx: context.Context
+//   - rawDir: directory containing raw images
+//   - dbPath: path to SQLite database
+//   - dryRun: if true, only preview changes without writing
+//   - priorityDevices: list of device model substrings to prioritize
+//   - opts: matcher.ProviderOptions for matching algorithm configuration
 // Returns error if processing fails.
-func TagImages(rawDir, dbPath string, dryRun bool, priorityDevices []string) error
+func TagImages(ctx context.Context, rawDir, dbPath string, dryRun bool, priorityDevices []string, opts matcher.ProviderOptions) error
 ```
 
 ### database Package
@@ -474,12 +498,14 @@ type HistoryResponse [][]HAState
 ```go
 // DiscoverDeviceTrackers returns all device_tracker entities from Home Assistant.
 // Parameters:
+//   - ctx: context.Context
 //   - haURL: Home Assistant base URL (e.g., "http://homeassistant:8123")
 //   - haToken: Long-lived access token for authentication
+//   - client: Optional HTTP client; if nil, a default client with 30s timeout is used.
 // Returns:
 //   - []DeviceTracker: list of discovered device trackers
 //   - error: network or decoding errors
-func DiscoverDeviceTrackers(haURL, haToken string) ([]DeviceTracker, error)
+func DiscoverDeviceTrackers(ctx context.Context, haURL, haToken string, client *http.Client) ([]DeviceTracker, error)
 
 // FetchLocationHistory retrieves historical states for the given device trackers
 // within the specified time range. start and end should be in UTC.
@@ -489,10 +515,6 @@ func FetchLocationHistory(ctx context.Context, client Client, start, end time.Ti
 
 // GetTimezone retrieves the Home Assistant timezone configuration.
 func (c *Client) GetTimezone(ctx context.Context) (string, error)
-
-// ValidateEntityIDs ensures the provided entity IDs are valid device_tracker entities.
-// This can be used to verify user input.
-func (c *Client) ValidateEntityIDs(ctx context.Context, entityIDs []string) ([]DeviceTracker, error)
 ```
 
 ### matcher Package
@@ -597,7 +619,7 @@ exif-geotagger/
 ├── go.sum               # Dependency checksums
 ├── README.md            # This file
 └── pkg/
-    ├── processor/       # High-level workflows (BuildDB, BuildDBFromHA, TagImages)
+    ├── processor/       # High-level workflows (BuildDB, TagImages)
     ├── database/        # SQLite repository and schema
     ├── exiftool/        # ExifTool wrapper and metadata types
     ├── homeassistant/   # Home Assistant REST API client
