@@ -16,12 +16,13 @@ import (
 
 // Custom error types for parseLocationFromState failures
 var (
-	ErrMissingLatitude   = errors.New("missing latitude")
-	ErrMissingLongitude  = errors.New("missing longitude")
-	ErrInvalidLatitude   = errors.New("latitude not a number")
-	ErrInvalidLongitude  = errors.New("longitude not a number")
-	ErrInvalidTimestamp  = errors.New("invalid timestamp")
-	ErrInvalidAttributes = errors.New("invalid attributes")
+	ErrMissingLatitude          = errors.New("missing latitude")
+	ErrMissingLongitude         = errors.New("missing longitude")
+	ErrMissingLatitudeLongitude = errors.New("missing latitude or longitude")
+	ErrInvalidLatitude          = errors.New("latitude not a number")
+	ErrInvalidLongitude         = errors.New("longitude not a number")
+	ErrInvalidTimestamp         = errors.New("invalid timestamp")
+	ErrInvalidAttributes        = errors.New("invalid attributes")
 )
 
 // LocationData contains the parsed location information from an HA state.
@@ -138,7 +139,7 @@ func parseLocationFromState(state HAState) (*LocationData, error) {
 	latVal, okLat := attrs["latitude"]
 	lonVal, okLon := attrs["longitude"]
 	if !okLat || !okLon {
-		return nil, ErrMissingLatitudeLongitude()
+		return nil, ErrMissingLatitudeLongitude
 	}
 
 	lat, err := convertToFloat64(latVal)
@@ -193,11 +194,6 @@ func parseLocationFromState(state HAState) (*LocationData, error) {
 		Altitude:  alt,
 		Timestamp: ts,
 	}, nil
-}
-
-// ErrMissingLatitudeLongitude returns when either latitude or longitude is missing.
-func ErrMissingLatitudeLongitude() error {
-	return errors.New("missing latitude or longitude")
 }
 
 // convertToFloat64 converts numeric types to float64.
