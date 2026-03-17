@@ -11,7 +11,8 @@ import (
 	"github.com/abpatel/exif-geotagger/pkg/logger"
 )
 
-// Retry configuration for transient errors
+// Retry configuration for transient errors. These can be set by users to tune
+// retry behavior for different environments.
 var (
 	MaxRetries     = 3
 	InitialBackoff = 100 * time.Millisecond
