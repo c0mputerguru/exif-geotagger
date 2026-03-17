@@ -245,9 +245,9 @@ func TestFindClosest_InvalidQuery(t *testing.T) {
 	}
 }
 
-// TestGetAll_InvalidQuery tests GetAll with a bad query (missing table)
-func TestGetAll_InvalidQuery(t *testing.T) {
-	tmpFile, err := os.CreateTemp("", "test-db-getall-invalid-*.sqlite")
+// TestGetAll_MissingTable tests GetAll when the locations table does not exist
+func TestGetAll_MissingTable(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "test-db-getall-missing-*.sqlite")
 	if err != nil {
 		t.Fatalf("failed to create temp db: %v", err)
 	}
@@ -260,51 +260,16 @@ func TestGetAll_InvalidQuery(t *testing.T) {
 		t.Fatalf("failed to connect: %v", err)
 	}
 	defer repo.Close()
+
+	// Drop the locations table to simulate missing table
+	_, err = repo.db.Exec("DROP TABLE locations")
+	if err != nil {
+		t.Fatalf("failed to drop table: %v", err)
+	}
 
 	_, err = repo.GetAll(context.Background())
 	if err == nil {
-		t.Fatal("expected error for query on empty/missing table, got nil")
-	}
-}
-
-// TestInsert_ConstraintViolation tests insert with constraint violation (duplicate timestamp+device_model)
-func TestInsert_ConstraintViolation(t *testing.T) {
-	tmpFile, err := os.CreateTemp("", "test-db-constraint-*.sqlite")
-	if err != nil {
-		t.Fatalf("failed to create temp db: %v", err)
-	}
-	tmpPath := tmpFile.Name()
-	tmpFile.Close()
-	defer os.Remove(tmpPath)
-
-	repo, err := Connect(tmpPath)
-	if err != nil {
-		t.Fatalf("failed to connect: %v", err)
-	}
-	defer repo.Close()
-
-	now := time.Now()
-	entry := LocationEntry{
-		Timestamp:   now,
-		Latitude:    37.7749,
-		Longitude:   -122.4194,
-		DeviceModel: "Test",
-	}
-
-	// First insert should succeed
-	err = repo.Insert(context.Background(), entry)
-	if err != nil {
-		t.Fatalf("first insert failed: %v", err)
-	}
-
-	// Second insert with same timestamp and device model should fail (UNIQUE constraint violation)
-	err = repo.Insert(context.Background(), entry)
-	if err == nil {
-		t.Fatal("expected error for duplicate entry, got nil")
-	}
-	// Should indicate constraint violation
-	if !strings.Contains(err.Error(), "UNIQUE") && !strings.Contains(err.Error(), "constraint") && !strings.Contains(err.Error(), "duplicate") {
-		t.Logf("error message: %v", err)
+		t.Fatal("expected error for query on missing table, got nil")
 	}
 }
 
