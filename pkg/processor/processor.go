@@ -134,16 +134,16 @@ type BuildConfig struct {
 }
 
 // BuildDB builds a location database from either reference images or Home Assistant.
-func BuildDB(cfg BuildConfig) error {
+func BuildDB(ctx context.Context, cfg BuildConfig) error {
 	if cfg.Source == "ha" {
-		return buildDBFromHA(cfg)
+		return buildDBFromHA(ctx, cfg)
 	}
 	// Default to images source
-	return buildDBFromImages(cfg)
+	return buildDBFromImages(ctx, cfg)
 }
 
 // buildDBFromImages builds the database from images in inputDir, optionally filtering by device models.
-func buildDBFromImages(cfg BuildConfig) error {
+func buildDBFromImages(ctx context.Context, cfg BuildConfig) error {
 	if cfg.InputDir == "" {
 		return fmt.Errorf("inputDir is required when source is 'images'")
 	}
@@ -212,7 +212,7 @@ func buildDBFromImages(cfg BuildConfig) error {
 			Country:     meta.Country,
 			DeviceModel: model,
 		}
-		if err := repo.Insert(context.Background(), entry); err != nil {
+		if err := repo.Insert(ctx, entry); err != nil {
 			log.Printf("Warning: failed to insert location for %s: %v", path, err)
 			skipped++
 		} else {
@@ -228,9 +228,7 @@ func buildDBFromImages(cfg BuildConfig) error {
 }
 
 // buildDBFromHA builds a location database from Home Assistant.
-func buildDBFromHA(cfg BuildConfig) error {
-	// Create context for cancellation
-	ctx := context.Background()
+func buildDBFromHA(ctx context.Context, cfg BuildConfig) error {
 
 	// Trim trailing slash if present
 	url := strings.TrimSuffix(cfg.HAURL, "/")
@@ -327,7 +325,7 @@ func buildDBFromHA(cfg BuildConfig) error {
 }
 
 // TagImages tags raw images with GPS data from the database.
-func TagImages(rawDir string, dbPath string, dryRun bool, priorityDevices []string, opts matcher.ProviderOptions) error {
+func TagImages(ctx context.Context, rawDir string, dbPath string, dryRun bool, priorityDevices []string, opts matcher.ProviderOptions) error {
 	repo, err := database.Connect(dbPath)
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
@@ -373,7 +371,7 @@ func TagImages(rawDir string, dbPath string, dryRun bool, priorityDevices []stri
 			return nil
 		}
 
-		match, err := provider.FindBestMatch(context.Background(), ts, priorityDevices)
+		match, err := provider.FindBestMatch(ctx, ts, priorityDevices)
 		if err != nil {
 			log.Printf("No match found for %s (time: %s): %v\n", path, ts, err)
 			skipped++

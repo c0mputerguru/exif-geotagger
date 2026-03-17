@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"os"
 	"strings"
@@ -54,7 +55,7 @@ func runTagImages() {
 			PriorityMultiplier: *priorityMultiplier,
 		}
 
-		if err := processor.TagImages(*rawDir, *dbPath, *dryRun, priorityDevicesList, opts); err != nil {
+		if err := processor.TagImages(context.Background(), *rawDir, *dbPath, *dryRun, priorityDevicesList, opts); err != nil {
 			logger.Error("Error tagging images: %v", err)
 			os.Exit(1)
 		}

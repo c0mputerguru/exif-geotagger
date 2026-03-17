@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -87,7 +88,7 @@ func runBuildDB() {
 		os.Exit(1)
 	}
 
-	if err := processor.BuildDB(*cfg); err != nil {
+	if err := processor.BuildDB(context.Background(), *cfg); err != nil {
 		logger.Error("Error building database: %v", err)
 		os.Exit(1)
 	}

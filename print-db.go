@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"os"
 
@@ -13,7 +14,7 @@ func runPrintDB() {
 
 	printDbCmd.Parse(os.Args[2:])
 
-	if err := printDatabase(*dbPath); err != nil {
+	if err := printDatabase(context.Background(), *dbPath); err != nil {
 		logger.Error("Error printing database: %v", err)
 		os.Exit(1)
 	}

@@ -166,7 +166,7 @@ func TestEndToEnd_HAtoTagImages(t *testing.T) {
 
 	// 1. Build DB from HA source using -source=ha equivalent
 	// Call BuildDB with HA configuration
-	err := BuildDB(BuildConfig{
+	err := BuildDB(context.Background(), BuildConfig{
 		OutputDB:  dbPath,
 		Source:    "ha",
 		HAURL:     server.URL,
@@ -207,7 +207,7 @@ func TestEndToEnd_HAtoTagImages(t *testing.T) {
 	rawImg := createRawImage(t, rawDir, "photo.jpg", imgTime)
 
 	// 3. Run tag-images
-	err = TagImages(rawDir, dbPath, false, nil, matcher.ProviderOptions{
+	err = TagImages(context.Background(), rawDir, dbPath, false, nil, matcher.ProviderOptions{
 		SearchWindow:       matcher.DefaultSearchWindow,
 		TimeThreshold:      matcher.DefaultTimeThreshold,
 		PriorityMultiplier: matcher.DefaultPriorityMultiplier,
@@ -251,7 +251,7 @@ func TestEndToEnd_BuildDBFromImages(t *testing.T) {
 	createImageWithGPS(t, imagesDir, "iphone_photo2.jpg", 37.7760, -122.4200, 12.5, img3Time, "iPhone 14 Pro")
 
 	// Build database from images source
-	err := BuildDB(BuildConfig{
+	err := BuildDB(context.Background(), BuildConfig{
 		OutputDB: dbPath,
 		Source:   "images",
 		InputDir: imagesDir,
@@ -355,7 +355,7 @@ func TestEndToEnd_BuildDBFromImages_WithFilter(t *testing.T) {
 	createImageWithGPS(t, imagesDir, "pixel.jpg", 37.7750, -122.4195, 20.1, img2Time, "Pixel 8")
 
 	// Build database with filter for only iPhone
-	err := BuildDB(BuildConfig{
+	err := BuildDB(context.Background(), BuildConfig{
 		OutputDB:     dbPath,
 		Source:       "images",
 		InputDir:     imagesDir,
@@ -398,7 +398,7 @@ func TestBuildDBFromImages_WithAllFlag(t *testing.T) {
 	createImageWithGPS(t, imagesDir, "pixel.jpg", 37.7750, -122.4195, 20.1, img2Time, "Pixel 8")
 
 	// Build database without FilterModels (empty slice) - should include all
-	err := BuildDB(BuildConfig{
+	err := BuildDB(context.Background(), BuildConfig{
 		OutputDB: dbPath,
 		Source:   "images",
 		InputDir: imagesDir,
@@ -440,7 +440,7 @@ func TestBuildDBFromImages_WithAllFlag(t *testing.T) {
 func TestBuildDBFromImages_ErrorMissingInputDir(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "error.db")
 
-	err := BuildDB(BuildConfig{
+	err := BuildDB(context.Background(), BuildConfig{
 		OutputDB: dbPath,
 		Source:   "images",
 		// InputDir is empty
@@ -458,7 +458,7 @@ func TestBuildDBFromImages_ErrorMissingInputDir(t *testing.T) {
 func TestBuildDB_InvalidSource(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "invalid.db")
 
-	err := BuildDB(BuildConfig{
+	err := BuildDB(context.Background(), BuildConfig{
 		OutputDB: dbPath,
 		Source:   "invalid",
 	})
@@ -477,7 +477,7 @@ func TestBuildDBFromHA_ErrorMissingCredentials(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "ha.db")
 
 	// Missing URL
-	err := BuildDB(BuildConfig{
+	err := BuildDB(context.Background(), BuildConfig{
 		OutputDB: dbPath,
 		Source:   "ha",
 		HAToken:  "token",
@@ -487,7 +487,7 @@ func TestBuildDBFromHA_ErrorMissingCredentials(t *testing.T) {
 	}
 
 	// Missing token
-	err = BuildDB(BuildConfig{
+	err = BuildDB(context.Background(), BuildConfig{
 		OutputDB: dbPath,
 		Source:   "ha",
 		HAURL:    "http://ha",
@@ -507,7 +507,7 @@ func TestBuildDBFromHA_WithAllDevicesFlag(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "ha_all.db")
 
 	// Build with HAAll=true and no HADevices specified
-	err := BuildDB(BuildConfig{
+	err := BuildDB(context.Background(), BuildConfig{
 		OutputDB: dbPath,
 		Source:   "ha",
 		HAURL:    server.URL,
@@ -541,7 +541,7 @@ func TestBuildDBFromHA_WithDaysFlag(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "ha_days.db")
 
 	// Build with HADays=7 (last 7 days)
-	err := BuildDB(BuildConfig{
+	err := BuildDB(context.Background(), BuildConfig{
 		OutputDB:  dbPath,
 		Source:    "ha",
 		HAURL:     server.URL,
@@ -578,7 +578,7 @@ func TestBuildDBFromHA_ErrorInvalidTimeRange(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "ha_invalid.db")
 
 	// Invalid start format
-	err := BuildDB(BuildConfig{
+	err := BuildDB(context.Background(), BuildConfig{
 		OutputDB:  dbPath,
 		Source:    "ha",
 		HAURL:     server.URL,
@@ -595,7 +595,7 @@ func TestBuildDBFromHA_ErrorInvalidTimeRange(t *testing.T) {
 	}
 
 	// Invalid end format
-	err = BuildDB(BuildConfig{
+	err = BuildDB(context.Background(), BuildConfig{
 		OutputDB:  dbPath,
 		Source:    "ha",
 		HAURL:     server.URL,
@@ -623,7 +623,7 @@ func TestBuildDB_UpsertSemantics(t *testing.T) {
 	createImageWithGPS(t, imagesDir, "iphone1.jpg", 37.7749, -122.4194, 15.2, imgTime, "iPhone 14 Pro")
 
 	// First build
-	err := BuildDB(BuildConfig{
+	err := BuildDB(context.Background(), BuildConfig{
 		OutputDB: dbPath,
 		Source:   "images",
 		InputDir: imagesDir,
@@ -638,7 +638,7 @@ func TestBuildDB_UpsertSemantics(t *testing.T) {
 	createImageWithGPS(t, imagesDir, "iphone2.jpg", 37.7760, -122.4210, 22.1, img2Time, "iPhone 14 Pro")
 
 	// Second build (should upsert)
-	err = BuildDB(BuildConfig{
+	err = BuildDB(context.Background(), BuildConfig{
 		OutputDB: dbPath,
 		Source:   "images",
 		InputDir: imagesDir,

@@ -9,14 +9,14 @@ import (
 	"github.com/abpatel/exif-geotagger/pkg/database"
 )
 
-func printDatabase(dbPath string) error {
+func printDatabase(ctx context.Context, dbPath string) error {
 	repo, err := database.Connect(dbPath)
 	if err != nil {
 		return fmt.Errorf("error connecting to database: %w", err)
 	}
 	defer repo.Close()
 
-	entries, err := repo.GetAll(context.Background())
+	entries, err := repo.GetAll(ctx)
 	if err != nil {
 		return fmt.Errorf("error fetching entries: %w", err)
 	}
