@@ -23,6 +23,12 @@ import (
 	"github.com/abpatel/exif-geotagger/pkg/matcher"
 )
 
+// exiftoolAvailable checks if the exiftool binary is available in PATH.
+func exiftoolAvailable() bool {
+	_, err := exec.LookPath("exiftool")
+	return err == nil
+}
+
 // mockHAServer creates an httptest.Server that mocks the Home Assistant API endpoints.
 func mockHAServer(t *testing.T) *httptest.Server {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -156,6 +162,9 @@ func createImageWithGPS(t *testing.T, dir string, filename string, lat, lon floa
 }
 
 func TestEndToEnd_HAtoTagImages(t *testing.T) {
+	if !exiftoolAvailable() {
+		t.Skip("exiftool binary not found in PATH, skipping integration test")
+	}
 	// Start mock HA server
 	server := mockHAServer(t)
 	defer server.Close()
@@ -233,6 +242,9 @@ func TestEndToEnd_HAtoTagImages(t *testing.T) {
 }
 
 func TestEndToEnd_BuildDBFromImages(t *testing.T) {
+	if !exiftoolAvailable() {
+		t.Skip("exiftool binary not found in PATH, skipping integration test")
+	}
 	// Prepare directories
 	imagesDir := t.TempDir()
 	dbPath := filepath.Join(t.TempDir(), "images.db")
@@ -343,6 +355,9 @@ func TestEndToEnd_BuildDBFromImages(t *testing.T) {
 }
 
 func TestEndToEnd_BuildDBFromImages_WithFilter(t *testing.T) {
+	if !exiftoolAvailable() {
+		t.Skip("exiftool binary not found in PATH, skipping integration test")
+	}
 	// Test filtering by device models
 	imagesDir := t.TempDir()
 	dbPath := filepath.Join(t.TempDir(), "filtered.db")
@@ -387,6 +402,9 @@ func TestEndToEnd_BuildDBFromImages_WithFilter(t *testing.T) {
 // TestBuildDBFromImages_WithAllFlag tests that when FilterModels is empty (no filter),
 // all device models from images are included (equivalent to -all flag behavior).
 func TestBuildDBFromImages_WithAllFlag(t *testing.T) {
+	if !exiftoolAvailable() {
+		t.Skip("exiftool binary not found in PATH, skipping integration test")
+	}
 	imagesDir := t.TempDir()
 	dbPath := filepath.Join(t.TempDir(), "all.db")
 
@@ -500,6 +518,9 @@ func TestBuildDBFromHA_ErrorMissingCredentials(t *testing.T) {
 // TestBuildDBFromHA_WithAllDevicesFlag tests HA source with HADevices empty and HAAll=true,
 // which should discover all device_tracker entities.
 func TestBuildDBFromHA_WithAllDevicesFlag(t *testing.T) {
+	if !exiftoolAvailable() {
+		t.Skip("exiftool binary not found in PATH, skipping integration test")
+	}
 	// Use mock HA server
 	server := mockHAServer(t)
 	defer server.Close()
@@ -535,6 +556,9 @@ func TestBuildDBFromHA_WithAllDevicesFlag(t *testing.T) {
 
 // TestBuildDBFromHA_WithDaysFlag tests HA source with -ha-days flag.
 func TestBuildDBFromHA_WithDaysFlag(t *testing.T) {
+	if !exiftoolAvailable() {
+		t.Skip("exiftool binary not found in PATH, skipping integration test")
+	}
 	server := mockHAServer(t)
 	defer server.Close()
 
@@ -615,6 +639,9 @@ func TestBuildDBFromHA_ErrorInvalidTimeRange(t *testing.T) {
 // TestBuildDB_UpsertSemantics tests that running BuildDB twice with overlapping
 // data updates existing entries rather than creating duplicates.
 func TestBuildDB_UpsertSemantics(t *testing.T) {
+	if !exiftoolAvailable() {
+		t.Skip("exiftool binary not found in PATH, skipping integration test")
+	}
 	imagesDir := t.TempDir()
 	dbPath := filepath.Join(t.TempDir(), "upsert.db")
 
