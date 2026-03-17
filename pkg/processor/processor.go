@@ -13,6 +13,7 @@ import (
 	"github.com/abpatel/exif-geotagger/pkg/exiftool"
 	"github.com/abpatel/exif-geotagger/pkg/homeassistant"
 	"github.com/abpatel/exif-geotagger/pkg/matcher"
+	"github.com/abpatel/exif-geotagger/pkg/urlutil"
 )
 
 // Supported file extensions
@@ -230,8 +231,8 @@ func buildDBFromImages(ctx context.Context, cfg BuildConfig) error {
 // buildDBFromHA builds a location database from Home Assistant.
 func buildDBFromHA(ctx context.Context, cfg BuildConfig) error {
 
-	// Trim trailing slash if present
-	url := strings.TrimSuffix(cfg.HAURL, "/")
+	// Normalize URL (trim trailing slash)
+	url := urlutil.NormalizeURL(cfg.HAURL)
 
 	// 1. Determine entity IDs
 	var entityIDs []string

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/abpatel/exif-geotagger/pkg/logger"
+	"github.com/abpatel/exif-geotagger/pkg/urlutil"
 )
 
 // DeviceTracker represents a device_tracker entity from Home Assistant.
@@ -42,9 +43,7 @@ type StateResponse struct {
 //   - []DeviceTracker: list of discovered device trackers
 //   - error: network or decoding errors
 func DiscoverDeviceTrackers(ctx context.Context, haURL, haToken string, client *http.Client) ([]DeviceTracker, error) {
-	if strings.HasSuffix(haURL, "/") {
-		haURL = strings.TrimSuffix(haURL, "/")
-	}
+	haURL = urlutil.NormalizeURL(haURL)
 	url := fmt.Sprintf("%s/api/states", haURL)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
