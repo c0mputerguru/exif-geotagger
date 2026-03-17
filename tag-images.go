@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"os"
 	"strings"
 	"time"
@@ -12,9 +13,22 @@ import (
 	"github.com/abpatel/exif-geotagger/pkg/processor"
 )
 
-func runTagImages() {
+// TagImagesConfig holds the configuration for tag-images command.
+type TagImagesConfig struct {
+	RawDir             string
+	DBPath             string
+	DryRun             bool
+	PriorityDevices    []string
+	SearchWindow       time.Duration
+	TimeThreshold      time.Duration
+	PriorityMultiplier float64
+}
+
+// parseTagImagesArgs parses command line arguments and returns a TagImagesConfig.
+// It handles all flag definitions, parsing, and validation.
+func parseTagImagesArgs(args []string) (*TagImagesConfig, error) {
 	tagImagesCmd := flag.NewFlagSet("tag-images", flag.ExitOnError)
-	rawDir := tagImagesCmd.String("raw-dir", "", "Directory containing raw images to tag")
+	rawDir := tagImagesCmd.String("raw-dir", "", "Directory containing raw images to tag (required)")
 	dbPath := tagImagesCmd.String("db", "db.sqlite", "Path to SQLite database")
 	dryRun := tagImagesCmd.Bool("dry-run", false, "Preview changes without writing")
 	priorityDevices := tagImagesCmd.String("priority-devices", "", "Comma-separated list of priority devices (e.g., 'iPhone,Pixel')")
@@ -22,42 +36,63 @@ func runTagImages() {
 	timeThreshold := tagImagesCmd.String("time-threshold", "6h", "Maximum time difference threshold (e.g., 6h, 30m)")
 	priorityMultiplier := tagImagesCmd.Float64("priority-multiplier", 5.0, "Score multiplier for priority devices")
 
-	tagImagesCmd.Parse(os.Args[2:])
+	if err := tagImagesCmd.Parse(args); err != nil {
+		return nil, err
+	}
 
+	// Validate required -raw-dir
 	if *rawDir == "" {
-		logger.Error("Error: -raw-dir directory is required")
-		tagImagesCmd.Usage()
-		os.Exit(1)
-	} else {
-		var priorityDevicesList []string
-		if *priorityDevices != "" {
-			priorityDevicesList = strings.Split(*priorityDevices, ",")
-			for i, d := range priorityDevicesList {
-				priorityDevicesList[i] = strings.TrimSpace(d)
+		return nil, fmt.Errorf("-raw-dir directory is required")
+	}
+
+	// Parse priority devices
+	var priorityDevicesList []string
+	if *priorityDevices != "" {
+		parts := strings.Split(*priorityDevices, ",")
+		for _, p := range parts {
+			trimmed := strings.TrimSpace(p)
+			if trimmed != "" {
+				priorityDevicesList = append(priorityDevicesList, trimmed)
 			}
 		}
+	}
 
-		// Parse provider options
-		searchWindowDur, err := time.ParseDuration(*searchWindow)
-		if err != nil {
-			logger.Error("Invalid search-window duration: %v", err)
-			os.Exit(1)
-		}
-		timeThresholdDur, err := time.ParseDuration(*timeThreshold)
-		if err != nil {
-			logger.Error("Invalid time-threshold duration: %v", err)
-			os.Exit(1)
-		}
+	// Parse durations
+	searchWindowDur, err := time.ParseDuration(*searchWindow)
+	if err != nil {
+		return nil, fmt.Errorf("invalid search-window duration: %w", err)
+	}
+	timeThresholdDur, err := time.ParseDuration(*timeThreshold)
+	if err != nil {
+		return nil, fmt.Errorf("invalid time-threshold duration: %w", err)
+	}
 
-		opts := matcher.ProviderOptions{
-			SearchWindow:       searchWindowDur,
-			TimeThreshold:      timeThresholdDur,
-			PriorityMultiplier: *priorityMultiplier,
-		}
+	return &TagImagesConfig{
+		RawDir:             *rawDir,
+		DBPath:             *dbPath,
+		DryRun:             *dryRun,
+		PriorityDevices:    priorityDevicesList,
+		SearchWindow:       searchWindowDur,
+		TimeThreshold:      timeThresholdDur,
+		PriorityMultiplier: *priorityMultiplier,
+	}, nil
+}
 
-		if err := processor.TagImages(context.Background(), *rawDir, *dbPath, *dryRun, priorityDevicesList, opts); err != nil {
-			logger.Error("Error tagging images: %v", err)
-			os.Exit(1)
-		}
+func runTagImages() {
+	cfg, err := parseTagImagesArgs(os.Args[2:])
+	if err != nil {
+		logger.Error("Error: %v", err)
+		os.Exit(1)
+	}
+
+	opts := matcher.ProviderOptions{
+		SearchWindow:       cfg.SearchWindow,
+		TimeThreshold:      cfg.TimeThreshold,
+		PriorityMultiplier: cfg.PriorityMultiplier,
+	}
+
+	if err := processor.TagImages(context.Background(), cfg.RawDir, cfg.DBPath, cfg.DryRun, cfg.PriorityDevices, opts); err != nil {
+		logger.Error("Error tagging images: %v", err)
+		os.Exit(1)
 	}
 }
