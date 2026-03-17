@@ -43,7 +43,7 @@ func TestPrintDatabase_DBConnectionError(t *testing.T) {
 	// Use an invalid database path that cannot be opened
 	invalidPath := "/nonexistent/path/to/invalid.db"
 
-	err := printDatabase(invalidPath)
+	err := printDatabase(context.Background(), invalidPath)
 	if err == nil {
 		t.Fatal("expected error for invalid database path, got nil")
 	}
@@ -65,7 +65,7 @@ func TestPrintDatabase_EmptyDatabase(t *testing.T) {
 	os.Stdout = w
 
 	// Call printDatabase
-	err = printDatabase(dbPath)
+	err = printDatabase(context.Background(), dbPath)
 	if err != nil {
 		t.Fatalf("printDatabase returned unexpected error: %v", err)
 	}
@@ -124,7 +124,7 @@ func TestPrintDatabase_SuccessfulOutput(t *testing.T) {
 	os.Stdout = w
 
 	// Call printDatabase
-	err = printDatabase(dbPath)
+	err = printDatabase(context.Background(), dbPath)
 	if err != nil {
 		t.Fatalf("printDatabase returned unexpected error: %v", err)
 	}
