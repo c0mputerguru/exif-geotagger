@@ -7,6 +7,7 @@ import (
 	"image/jpeg"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -82,6 +83,149 @@ func TestExiftoolReadWrite(t *testing.T) {
 	}
 	// Note: exiftool might not write City successfully to a standard EXIF tag without XMP/IPTC definitions,
 	// depending on standard. Let's just test GPS which EXIF guarantees.
+}
+
+func TestBuildExiftoolArgs(t *testing.T) {
+	tests := []struct {
+		name     string
+		meta     Metadata
+		filePath string
+		want     []string
+	}{
+		{
+			name:     "empty metadata returns nil",
+			meta:     Metadata{},
+			filePath: "/path/to/image.jpg",
+			want:     nil,
+		},
+		{
+			name:     "latitude and longitude only",
+			meta: Metadata{
+				GPSLatitude:  floatPtr(37.7749),
+				GPSLongitude: floatPtr(-122.4194),
+			},
+			filePath: "/path/to/image.jpg",
+			want: []string{
+				"-GPSLatitude=37.774900",
+				"-GPSLongitude=-122.419400",
+				"-GPSLatitudeRef=N",
+				"-GPSLongitudeRef=W",
+				"-overwrite_original",
+				"/path/to/image.jpg",
+			},
+		},
+		{
+			name:     "negative latitude and longitude",
+			meta: Metadata{
+				GPSLatitude:  floatPtr(-33.8688),
+				GPSLongitude: floatPtr(151.2093),
+			},
+			filePath: "/path/to/image.jpg",
+			want: []string{
+				"-GPSLatitude=-33.868800",
+				"-GPSLongitude=151.209300",
+				"-GPSLatitudeRef=S",
+				"-GPSLongitudeRef=E",
+				"-overwrite_original",
+				"/path/to/image.jpg",
+			},
+		},
+		{
+			name:     "altitude only (positive)",
+			meta: Metadata{
+				GPSAltitude: floatPtr(15.5),
+			},
+			filePath: "/path/to/image.jpg",
+			want: []string{
+				"-GPSAltitude=15.500000",
+				"-GPSAltitudeRef=0",
+				"-overwrite_original",
+				"/path/to/image.jpg",
+			},
+		},
+		{
+			name:     "altitude only (negative)",
+			meta: Metadata{
+				GPSAltitude: floatPtr(-10.0),
+			},
+			filePath: "/path/to/image.jpg",
+			want: []string{
+				"-GPSAltitude=-10.000000",
+				"-GPSAltitudeRef=1",
+				"-overwrite_original",
+				"/path/to/image.jpg",
+			},
+		},
+		{
+			name:     "city, state, country",
+			meta: Metadata{
+				City:    stringPtr("San Francisco"),
+				State:   stringPtr("California"),
+				Country: stringPtr("USA"),
+			},
+			filePath: "/path/to/image.jpg",
+			want: []string{
+				"-City=San Francisco",
+				"-State=California",
+				"-Country=USA",
+				"-overwrite_original",
+				"/path/to/image.jpg",
+			},
+		},
+		{
+			name:     "all fields combined",
+			meta: Metadata{
+				GPSLatitude:  floatPtr(40.7128),
+				GPSLongitude: floatPtr(-74.0060),
+				GPSAltitude:  floatPtr(10.0),
+				City:         stringPtr("New York"),
+				State:        stringPtr("NY"),
+				Country:      stringPtr("USA"),
+			},
+			filePath: "/path/to/image.jpg",
+			want: []string{
+				"-GPSLatitude=40.712800",
+				"-GPSLongitude=-74.006000",
+				"-GPSLatitudeRef=N",
+				"-GPSLongitudeRef=W",
+				"-GPSAltitude=10.000000",
+				"-GPSAltitudeRef=0",
+				"-City=New York",
+				"-State=NY",
+				"-Country=USA",
+				"-overwrite_original",
+				"/path/to/image.jpg",
+			},
+		},
+		{
+			name:     "nil values should be ignored",
+			meta: Metadata{
+				GPSLatitude:  floatPtr(37.7749),
+				GPSLongitude: floatPtr(-122.4194),
+				City:         nil, // nil, should not appear
+			},
+			filePath: "/path/to/image.jpg",
+			want: []string{
+				"-GPSLatitude=37.774900",
+				"-GPSLongitude=-122.419400",
+				"-GPSLatitudeRef=N",
+				"-GPSLongitudeRef=W",
+				"-overwrite_original",
+				"/path/to/image.jpg",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := BuildExiftoolArgs(tt.filePath, tt.meta)
+
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("BuildExiftoolArgs(%q, %+v) = %v, want %v",
+					tt.filePath, tt.meta, got, tt.want)
+			}
+		})
+	}
 }
 
 func TestGetTimestamp(t *testing.T) {

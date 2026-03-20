@@ -174,8 +174,9 @@ func ReadMetadata(filePath string) (Metadata, error) {
 	return result, err
 }
 
-func WriteMetadata(filePath string, meta Metadata, dryRun bool) error {
+func BuildExiftoolArgs(filePath string, meta Metadata) []string {
 	args := []string{}
+
 	// Only write tags that are present and not nil
 	if meta.GPSLatitude != nil && meta.GPSLongitude != nil {
 		args = append(args, fmt.Sprintf("-GPSLatitude=%f", *meta.GPSLatitude))
@@ -217,6 +218,16 @@ func WriteMetadata(filePath string, meta Metadata, dryRun bool) error {
 	// Overwrite original instead of leaving _original files
 	args = append(args, "-overwrite_original")
 	args = append(args, filePath)
+
+	return args
+}
+
+func WriteMetadata(filePath string, meta Metadata, dryRun bool) error {
+	args := BuildExiftoolArgs(filePath, meta)
+
+	if len(args) == 0 {
+		return nil // Nothing to write
+	}
 
 	if dryRun {
 		logger.Info("[DRY RUN] Would write to %s: %s", filePath, strings.Join(args[:len(args)-1], " "))
