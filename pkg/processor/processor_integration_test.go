@@ -873,3 +873,112 @@ func TestTagImages_ScriptGeneration(t *testing.T) {
 		t.Error("missing footer with totals")
 	}
 }
+
+// TestTagImages_ScriptGeneration_NewlineInFilename tests that when a file path contains
+// newline characters, the skip comments in the generated script have the newlines
+// sanitized to spaces, ensuring the script remains valid.
+func TestTagImages_ScriptGeneration_NewlineInFilename(t *testing.T) {
+	if !exiftoolAvailable() {
+		t.Skip("exiftool binary not found")
+	}
+	// Build DB with a single location
+	imagesDir := t.TempDir()
+	dbPath := filepath.Join(t.TempDir(), "newline.db")
+	imgTime := time.Date(2023, 10, 1, 12, 0, 0, 0, time.UTC)
+	createImageWithGPS(t, imagesDir, "ref.jpg", 37.7749, -122.4194, 10.0, imgTime, "TestCam")
+	err := BuildDB(context.Background(), BuildConfig{
+		OutputDB: dbPath,
+		Source:   "images",
+		InputDir: imagesDir,
+	})
+	if err != nil {
+		t.Fatalf("BuildDB failed: %v", err)
+	}
+
+	rawDir := t.TempDir()
+	// Create a raw image with newline in the filename that already has GPS (will be skipped)
+	rawTime := imgTime.Add(30 * time.Minute)
+	filenameWithNewline := "photo\nwith\nnewlines.jpg"
+	// Create raw image, then add GPS and timestamp
+	path := filepath.Join(rawDir, filenameWithNewline)
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("failed to create image: %v", err)
+	}
+	f.Close()
+	img := image.NewRGBA(image.Rect(0, 0, 10, 10))
+	for x := 0; x < 10; x++ {
+		for y := 0; y < 10; y++ {
+			img.Set(x, y, color.RGBA{255, 0, 0, 255})
+		}
+	}
+	f, err = os.Create(path)
+	if err != nil {
+		t.Fatalf("failed to create image: %v", err)
+	}
+	defer f.Close()
+	if err := jpeg.Encode(f, img, nil); err != nil {
+		t.Fatalf("failed to encode JPEG: %v", err)
+	}
+	// Set DateTimeOriginal
+	dtStr := rawTime.Format("2006:01:02 15:04:05")
+	cmd := exec.Command("exiftool", "-DateTimeOriginal="+dtStr, "-overwrite_original", path)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("exiftool set DateTime failed: %s, %v", out, err)
+	}
+	// Set GPS so it's considered as already having GPS
+	latRef := "N"
+	lonRef := "E"
+	cmd = exec.Command("exiftool",
+		"-GPSLatitude=37.7749",
+		"-GPSLongitude=-122.4194",
+		"-GPSLatitudeRef="+latRef,
+		"-GPSLongitudeRef="+lonRef,
+		"-overwrite_original",
+		path,
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("exiftool set GPS failed: %s, %v", out, err)
+	}
+
+	// Generate script
+	scriptPath := filepath.Join(t.TempDir(), "newline_script.sh")
+	writer, err := NewFileScriptWriter(scriptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Close()
+
+	err = TagImages(context.Background(), rawDir, dbPath, false, nil, matcher.ProviderOptions{
+		SearchWindow:       matcher.DefaultSearchWindow,
+		TimeThreshold:      matcher.DefaultTimeThreshold,
+		PriorityMultiplier: matcher.DefaultPriorityMultiplier,
+	}, writer)
+	if err != nil {
+		t.Fatalf("TagImages error: %v", err)
+	}
+
+	content, err := os.ReadFile(scriptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(content)
+
+	// The file should be skipped with a comment. The path contains newlines, which should be sanitized to spaces.
+	// The skip comment line should contain "SKIP:" and the sanitized path (with spaces instead of newlines).
+	// Original filename with newlines: "photo\nwith\nnewlines.jpg"
+	// After sanitization: "photo with newlines.jpg"
+	sanitized := "photo with newlines.jpg"
+	if !strings.Contains(script, "# SKIP: "+sanitized) {
+		t.Errorf("script missing sanitized skip comment for filename with newlines.\nScript:\n%s", script)
+	}
+	// Ensure the raw newline does not appear as a literal newline in the script line (i.e., no extra line break within comment).
+	lines := strings.Split(script, "\n")
+	for _, line := range lines {
+		if strings.HasPrefix(line, "# SKIP:") {
+			if strings.Contains(line, "\n") || strings.Contains(line, "\r") {
+				t.Errorf("skip comment contains newline character: %q", line)
+			}
+		}
+	}
+}

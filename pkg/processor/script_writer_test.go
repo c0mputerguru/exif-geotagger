@@ -5,8 +5,6 @@ import (
 	"os"
 	"strings"
 	"testing"
-
-	"github.com/abpatel/exif-geotagger/pkg/exiftool"
 )
 
 func TestEscapeShellArg(t *testing.T) {
@@ -185,6 +183,11 @@ func TestEscapeShellArg(t *testing.T) {
 			arg:      "line\rbreak",
 			expected: "'line\rbreak'",
 		},
+		{
+			name:     "long path with spaces (>128 chars)",
+			arg:      strings.Repeat("a", 150) + "/file name.txt",
+			expected: "'" + strings.Repeat("a", 150) + "/file name.txt'",
+		},
 	}
 
 	for _, tt := range tests {
@@ -337,6 +340,44 @@ func TestFileScriptWriter(t *testing.T) {
 	}
 }
 
+func TestFileScriptWriter_WriteLine(t *testing.T) {
+	tmpfile, err := os.CreateTemp("", "writeline-test-*.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpfile.Name())
+	tmpfile.Close()
+
+	writer, err := NewFileScriptWriter(tmpfile.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	lines := []string{
+		"#!/usr/bin/env bash",
+		"# Comment with special chars: $`\"'",
+		"exiftool -somearg value",
+	}
+	for _, line := range lines {
+		if err := writer.WriteLine(line); err != nil {
+			t.Fatalf("WriteLine failed: %v", err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	content, err := os.ReadFile(tmpfile.Name())
+	if err != nil {
+		t.Fatalf("ReadFile failed: %v", err)
+	}
+
+	expected := strings.Join(lines, "\n") + "\n"
+	if string(content) != expected {
+		t.Errorf("WriteLine output mismatch:\ngot:\n%q\nwant:\n%q", string(content), expected)
+	}
+}
+
 func TestStdoutScriptWriter(t *testing.T) {
 	// Capture stdout
 	oldStdout := os.Stdout
@@ -378,6 +419,41 @@ func TestStdoutScriptWriter(t *testing.T) {
 	}
 }
 
+func TestStdoutScriptWriter_WriteLine(t *testing.T) {
+	oldStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+
+	writer := NewStdoutScriptWriter()
+	lines := []string{
+		"#!/usr/bin/env bash",
+		"# Comment with $var and `cmd`",
+		"echo done",
+	}
+	for _, line := range lines {
+		if err := writer.WriteLine(line); err != nil {
+			t.Fatalf("WriteLine failed: %v", err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+	w.Close()
+	os.Stdout = oldStdout
+
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+	output := buf.String()
+
+	expected := strings.Join(lines, "\n") + "\n"
+	if output != expected {
+		t.Errorf("Stdout WriteLine output mismatch:\ngot:\n%q\nwant:\n%q", output, expected)
+	}
+}
+
 func TestScriptWriter_EmptyFile(t *testing.T) {
 	tmpfile, err := os.CreateTemp("", "empty-script-*.sh")
 	if err != nil {
@@ -413,168 +489,6 @@ func TestScriptWriter_ErrorHandling(t *testing.T) {
 	if err == nil {
 		t.Error("Expected error for invalid path, got nil")
 	}
-}
-
-func TestFileScriptWriter_WriteTagCommand(t *testing.T) {
-	tmpfile, err := os.CreateTemp("", "tagcmd-test-*.sh")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(tmpfile.Name())
-	tmpfile.Close()
-
-	writer, err := NewFileScriptWriter(tmpfile.Name())
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Create some metadata
-	meta := exiftool.Metadata{
-		GPSLatitude:  ptrFloat64(37.7749),
-		GPSLongitude: ptrFloat64(-122.4194),
-		City:         ptrString("San Francisco"),
-	}
-
-	// Write tag command
-	err = writer.WriteTagCommand("image.jpg", meta)
-	if err != nil {
-		t.Fatalf("WriteTagCommand failed: %v", err)
-	}
-
-	err = writer.Close()
-	if err != nil {
-		t.Fatalf("Close failed: %v", err)
-	}
-
-	// Read file
-	content, err := os.ReadFile(tmpfile.Name())
-	if err != nil {
-		t.Fatalf("ReadFile failed: %v", err)
-	}
-
-	// Should contain an exiftool command with proper escaping
-	// BuildExiftoolArgs adds latRef and lonRef based on sign
-	expected := "exiftool -GPSLatitude=37.774900 -GPSLongitude=-122.419400 -GPSLatitudeRef=N -GPSLongitudeRef=W '-City=San Francisco' -overwrite_original image.jpg\n"
-	if string(content) != expected {
-		t.Errorf("WriteTagCommand output:\ngot:\n%q\nwant:\n%q", string(content), expected)
-	}
-}
-
-func TestFileScriptWriter_WriteSkipComment(t *testing.T) {
-	tmpfile, err := os.CreateTemp("", "skipcmd-test-*.sh")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(tmpfile.Name())
-	tmpfile.Close()
-
-	writer, err := NewFileScriptWriter(tmpfile.Name())
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Write skip comment
-	err = writer.WriteSkipComment("image.jpg", "already has GPS data")
-	if err != nil {
-		t.Fatalf("WriteSkipComment failed: %v", err)
-	}
-
-	err = writer.Close()
-	if err != nil {
-		t.Fatalf("Close failed: %v", err)
-	}
-
-	// Read file
-	content, err := os.ReadFile(tmpfile.Name())
-	if err != nil {
-		t.Fatalf("ReadFile failed: %v", err)
-	}
-
-	expected := "# SKIP image.jpg - already has GPS data\n"
-	if string(content) != expected {
-		t.Errorf("WriteSkipComment output:\ngot:\n%q\nwant:\n%q", string(content), expected)
-	}
-}
-
-func TestStdoutScriptWriter_WriteTagCommand(t *testing.T) {
-	// Capture stdout
-	oldStdout := os.Stdout
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	os.Stdout = w
-
-	writer := NewStdoutScriptWriter()
-
-	meta := exiftool.Metadata{
-		GPSLatitude:  ptrFloat64(37.7749),
-		GPSLongitude: ptrFloat64(-122.4194),
-	}
-
-	err = writer.WriteTagCommand("my photo.jpg", meta)
-	if err != nil {
-		t.Fatalf("WriteTagCommand failed: %v", err)
-	}
-
-	err = writer.Close()
-	if err != nil {
-		t.Fatalf("Close failed: %v", err)
-	}
-
-	w.Close()
-	os.Stdout = oldStdout
-
-	var buf bytes.Buffer
-	buf.ReadFrom(r)
-	output := buf.String()
-
-	expected := "exiftool -GPSLatitude=37.774900 -GPSLongitude=-122.419400 -GPSLatitudeRef=N -GPSLongitudeRef=W -overwrite_original 'my photo.jpg'\n"
-	if output != expected {
-		t.Errorf("Stdout WriteTagCommand output:\ngot:\n%q\nwant:\n%q", output, expected)
-	}
-}
-
-func TestStdoutScriptWriter_WriteSkipComment(t *testing.T) {
-	oldStdout := os.Stdout
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	os.Stdout = w
-
-	writer := NewStdoutScriptWriter()
-
-	err = writer.WriteSkipComment("file with spaces.jpg", "no valid timestamp")
-	if err != nil {
-		t.Fatalf("WriteSkipComment failed: %v", err)
-	}
-
-	err = writer.Close()
-	if err != nil {
-		t.Fatalf("Close failed: %v", err)
-	}
-
-	w.Close()
-	os.Stdout = oldStdout
-
-	var buf bytes.Buffer
-	buf.ReadFrom(r)
-	output := buf.String()
-
-	expected := "# SKIP file with spaces.jpg - no valid timestamp\n"
-	if output != expected {
-		t.Errorf("Stdout WriteSkipComment output:\ngot:\n%q\nwant:\n%q", output, expected)
-	}
-}
-
-// Helper functions to create pointers
-func ptrFloat64(v float64) *float64 {
-	return &v
-}
-
-func ptrString(s string) *string {
-	return &s
 }
 
 // Test that the escaping produces a shell command that is safe to execute
