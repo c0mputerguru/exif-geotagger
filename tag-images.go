@@ -22,6 +22,8 @@ type TagImagesConfig struct {
 	SearchWindow       time.Duration
 	TimeThreshold      time.Duration
 	PriorityMultiplier float64
+	GenerateScript     bool
+	ScriptOutput       string
 }
 
 // parseTagImagesArgs parses command line arguments and returns a TagImagesConfig.
@@ -35,6 +37,8 @@ func parseTagImagesArgs(args []string) (*TagImagesConfig, error) {
 	searchWindow := tagImagesCmd.String("search-window", "12h", "Search window duration (e.g., 12h, 30m)")
 	timeThreshold := tagImagesCmd.String("time-threshold", "6h", "Maximum time difference threshold (e.g., 6h, 30m)")
 	priorityMultiplier := tagImagesCmd.Float64("priority-multiplier", 5.0, "Score multiplier for priority devices")
+	generateScript := tagImagesCmd.Bool("generate-script", false, "Generate a shell script with exiftool commands instead of executing")
+	scriptOutput := tagImagesCmd.String("script-output", "", "Output file for generated script (default: stdout if -generate-script)")
 
 	if err := tagImagesCmd.Parse(args); err != nil {
 		return nil, err
@@ -75,6 +79,8 @@ func parseTagImagesArgs(args []string) (*TagImagesConfig, error) {
 		SearchWindow:       searchWindowDur,
 		TimeThreshold:      timeThresholdDur,
 		PriorityMultiplier: *priorityMultiplier,
+		GenerateScript:     *generateScript,
+		ScriptOutput:       *scriptOutput,
 	}, nil
 }
 
@@ -91,7 +97,24 @@ func runTagImages() {
 		PriorityMultiplier: cfg.PriorityMultiplier,
 	}
 
-	if err := processor.TagImages(context.Background(), cfg.RawDir, cfg.DBPath, cfg.DryRun, cfg.PriorityDevices, opts, nil); err != nil {
+	// Determine script writer (if any)
+	var scriptWriter processor.ScriptWriter
+	if cfg.GenerateScript {
+		var err error
+		if cfg.ScriptOutput == "" {
+			scriptWriter = processor.NewStdoutScriptWriter()
+		} else {
+			scriptWriter, err = processor.NewFileScriptWriter(cfg.ScriptOutput)
+			if err != nil {
+				logger.Error("Failed to create script output file: %v", err)
+				os.Exit(1)
+			}
+			// Ensure the file is closed at the end
+			defer scriptWriter.Close()
+		}
+	}
+
+	if err := processor.TagImages(context.Background(), cfg.RawDir, cfg.DBPath, cfg.DryRun, cfg.PriorityDevices, opts, scriptWriter); err != nil {
 		logger.Error("Error tagging images: %v", err)
 		os.Exit(1)
 	}

@@ -232,4 +232,46 @@ func TestParseTagImagesArgs_DefaultValues(t *testing.T) {
 	if cfg.PriorityMultiplier != 5.0 {
 		t.Errorf("expected default PriorityMultiplier 5.0, got %f", cfg.PriorityMultiplier)
 	}
+	if cfg.GenerateScript != false {
+		t.Errorf("expected default GenerateScript false, got %v", cfg.GenerateScript)
+	}
+	if cfg.ScriptOutput != "" {
+		t.Errorf("expected default ScriptOutput empty, got %s", cfg.ScriptOutput)
+	}
+}
+
+func TestParseTagImagesArgs_ScriptGenerationFlags(t *testing.T) {
+	args := []string{
+		"-raw-dir", "/path/to/raw",
+		"-generate-script",
+		"-script-output", "tag_script.sh",
+	}
+	cfg, err := parseTagImagesArgs(args)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cfg.GenerateScript {
+		t.Error("expected GenerateScript true")
+	}
+	if cfg.ScriptOutput != "tag_script.sh" {
+		t.Errorf("expected ScriptOutput 'tag_script.sh', got '%s'", cfg.ScriptOutput)
+	}
+}
+
+func TestParseTagImagesArgs_ScriptGenerationDefaultOutput(t *testing.T) {
+	args := []string{
+		"-raw-dir", "/path/to/raw",
+		"-generate-script",
+		// no -script-output
+	}
+	cfg, err := parseTagImagesArgs(args)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cfg.GenerateScript {
+		t.Error("expected GenerateScript true")
+	}
+	if cfg.ScriptOutput != "" {
+		t.Errorf("expected default ScriptOutput empty, got '%s'", cfg.ScriptOutput)
+	}
 }
