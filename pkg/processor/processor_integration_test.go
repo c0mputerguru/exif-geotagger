@@ -965,12 +965,18 @@ func TestTagImages_ScriptGeneration_NewlineInFilename(t *testing.T) {
 	script := string(content)
 
 	// The file should be skipped with a comment. The path contains newlines, which should be sanitized to spaces.
-	// The skip comment line should contain "SKIP:" and the sanitized path (with spaces instead of newlines).
+	// The skip comment line should contain the full sanitized path (with spaces instead of newlines).
 	// Original filename with newlines: "photo\nwith\nnewlines.jpg"
-	// After sanitization: "photo with newlines.jpg"
-	sanitized := "photo with newlines.jpg"
-	if !strings.Contains(script, "# SKIP: "+sanitized) {
-		t.Errorf("script missing sanitized skip comment for filename with newlines.\nScript:\n%s", script)
+	// After sanitization: replace newlines with spaces in the full path.
+	sanitized := strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\r' {
+			return ' '
+		}
+		return r
+	}, path)
+	expectedPrefix := "# SKIP: " + sanitized
+	if !strings.Contains(script, expectedPrefix) {
+		t.Errorf("script missing sanitized skip comment for filename with newlines.\nExpected prefix: %q\nScript:\n%s", expectedPrefix, script)
 	}
 	// Ensure the raw newline does not appear as a literal newline in the script line (i.e., no extra line break within comment).
 	lines := strings.Split(script, "\n")
@@ -980,5 +986,343 @@ func TestTagImages_ScriptGeneration_NewlineInFilename(t *testing.T) {
 				t.Errorf("skip comment contains newline character: %q", line)
 			}
 		}
+	}
+}
+
+// TestTagImages_ScriptGeneration_NilAltitude tests that when the reference image has
+// no altitude (GPSAltitude is nil), the generated exiftool command does not include
+// the -GPSAltitude tag, while still including latitude and longitude.
+func TestTagImages_ScriptGeneration_NilAltitude(t *testing.T) {
+	if !exiftoolAvailable() {
+		t.Skip("exiftool binary not found")
+	}
+	// Build DB with location entry that has no altitude
+	imagesDir := t.TempDir()
+	dbPath := filepath.Join(t.TempDir(), "nilalt.db")
+	imgTime := time.Date(2023, 10, 1, 12, 0, 0, 0, time.UTC)
+
+	// Create reference image with lat/lon only (no altitude)
+	refPath := filepath.Join(imagesDir, "ref.jpg")
+	// Create JPEG
+	f, err := os.Create(refPath)
+	if err != nil {
+		t.Fatalf("failed to create image: %v", err)
+	}
+	f.Close()
+	img := image.NewRGBA(image.Rect(0, 0, 10, 10))
+	for x := 0; x < 10; x++ {
+		for y := 0; y < 10; y++ {
+			img.Set(x, y, color.RGBA{0, 255, 0, 255})
+		}
+	}
+	f, err = os.Create(refPath)
+	if err != nil {
+		t.Fatalf("failed to create image: %v", err)
+	}
+	defer f.Close()
+	if err := jpeg.Encode(f, img, nil); err != nil {
+		t.Fatalf("failed to encode JPEG: %v", err)
+	}
+	// Set EXIF: DateTimeOriginal, GPSLatitude, GPSLongitude, and refs. No altitude.
+	dtStr := imgTime.Format("2006:01:02 15:04:05")
+	lat := 37.7749
+	lon := -122.4194
+	latRef := "N"
+	if lat < 0 {
+		latRef = "S"
+	}
+	lonRef := "E"
+	if lon < 0 {
+		lonRef = "W"
+	}
+	args := []string{
+		"-DateTimeOriginal=" + dtStr,
+		"-GPSLatitude=" + fmt.Sprintf("%f", lat),
+		"-GPSLongitude=" + fmt.Sprintf("%f", lon),
+		"-GPSLatitudeRef=" + latRef,
+		"-GPSLongitudeRef=" + lonRef,
+		"-overwrite_original",
+		refPath,
+	}
+	cmd := exec.Command("exiftool", args...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("exiftool failed: %s, %v", out, err)
+	}
+
+	// Build DB
+	err = BuildDB(context.Background(), BuildConfig{
+		OutputDB: dbPath,
+		Source:   "images",
+		InputDir: imagesDir,
+	})
+	if err != nil {
+		t.Fatalf("BuildDB failed: %v", err)
+	}
+
+	// Create raw image that will match the reference
+	rawDir := t.TempDir()
+	rawTime := imgTime.Add(5 * time.Minute)
+	createRawImage(t, rawDir, "raw.jpg", rawTime)
+
+	// Generate script
+	scriptPath := filepath.Join(t.TempDir(), "script.sh")
+	writer, err := NewFileScriptWriter(scriptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Close()
+
+	err = TagImages(context.Background(), rawDir, dbPath, false, nil, matcher.ProviderOptions{
+		SearchWindow:       matcher.DefaultSearchWindow,
+		TimeThreshold:      matcher.DefaultTimeThreshold,
+		PriorityMultiplier: matcher.DefaultPriorityMultiplier,
+	}, writer)
+	if err != nil {
+		t.Fatalf("TagImages error: %v", err)
+	}
+
+	content, err := os.ReadFile(scriptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(content)
+
+	// Verify that -GPSAltitude is NOT present
+	if strings.Contains(script, "-GPSAltitude") {
+		t.Errorf("script contains -GPSAltitude, but reference has nil altitude")
+	}
+	// Verify lat/lon are present
+	if !strings.Contains(script, "-GPSLatitude=37.7749") {
+		t.Error("missing expected latitude in script")
+	}
+	if !strings.Contains(script, "-GPSLongitude=-122.4194") {
+		t.Error("missing expected longitude in script")
+	}
+}
+
+// TestTagImages_ScriptGeneration_Timezone tests that timestamps with timezone offsets
+// are correctly parsed and matched during script generation. It verifies that a
+// reference image with a timezone offset and a raw image with a naive UTC timestamp
+// are matched correctly and produce a valid exiftool command.
+func TestTagImages_ScriptGeneration_Timezone(t *testing.T) {
+	if !exiftoolAvailable() {
+		t.Skip("exiftool binary not found")
+	}
+	// Build DB with reference image that has timestamp with timezone offset
+	imagesDir := t.TempDir()
+	dbPath := filepath.Join(t.TempDir(), "tz.db")
+
+	// Reference timestamp: 2023-10-01 12:00:00+02:00, which is 10:00 UTC.
+	// We'll set raw image timestamp to 10:00 UTC (naive) for an exact match.
+	utcTime := time.Date(2023, 10, 1, 10, 0, 0, 0, time.UTC)
+	tzTimeStr := "2023:10:01 12:00:00+02:00"
+
+	// Create reference image
+	refPath := filepath.Join(imagesDir, "ref.jpg")
+	f, err := os.Create(refPath)
+	if err != nil {
+		t.Fatalf("failed to create ref image: %v", err)
+	}
+	f.Close()
+	img := image.NewRGBA(image.Rect(0, 0, 10, 10))
+	for x := 0; x < 10; x++ {
+		for y := 0; y < 10; y++ {
+			img.Set(x, y, color.RGBA{0, 255, 0, 255})
+		}
+	}
+	f, err = os.Create(refPath)
+	if err != nil {
+		t.Fatalf("failed to create ref image: %v", err)
+	}
+	defer f.Close()
+	if err := jpeg.Encode(f, img, nil); err != nil {
+		t.Fatalf("failed to encode JPEG: %v", err)
+	}
+
+	// Set EXIF with timezone-aware DateTimeOriginal and GPS
+	lat := 37.7749
+	lon := -122.4194
+	latRef := "N"
+	if lat < 0 {
+		latRef = "S"
+	}
+	lonRef := "E"
+	if lon < 0 {
+		lonRef = "W"
+	}
+	args := []string{
+		"-DateTimeOriginal=" + tzTimeStr,
+		"-GPSLatitude=" + fmt.Sprintf("%f", lat),
+		"-GPSLongitude=" + fmt.Sprintf("%f", lon),
+		"-GPSLatitudeRef=" + latRef,
+		"-GPSLongitudeRef=" + lonRef,
+		"-overwrite_original",
+		refPath,
+	}
+	cmd := exec.Command("exiftool", args...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("exiftool failed: %s, %v", out, err)
+	}
+
+	// Build DB
+	err = BuildDB(context.Background(), BuildConfig{
+		OutputDB: dbPath,
+		Source:   "images",
+		InputDir: imagesDir,
+	})
+	if err != nil {
+		t.Fatalf("BuildDB failed: %v", err)
+	}
+
+	// Create raw image with UTC naive timestamp
+	rawDir := t.TempDir()
+	rawPath := filepath.Join(rawDir, "raw.jpg")
+	f, err = os.Create(rawPath)
+	if err != nil {
+		t.Fatalf("failed to create raw image: %v", err)
+	}
+	f.Close()
+	img2 := image.NewRGBA(image.Rect(0, 0, 10, 10))
+	for x := 0; x < 10; x++ {
+		for y := 0; y < 10; y++ {
+			img2.Set(x, y, color.RGBA{255, 0, 0, 255})
+		}
+	}
+	f, err = os.Create(rawPath)
+	if err != nil {
+		t.Fatalf("failed to create raw image: %v", err)
+	}
+	defer f.Close()
+	if err := jpeg.Encode(f, img2, nil); err != nil {
+		t.Fatalf("failed to encode raw JPEG: %v", err)
+	}
+
+	// Set naive DateTimeOriginal (UTC)
+	naiveTimeStr := utcTime.Format("2006:01:02 15:04:05")
+	cmd = exec.Command("exiftool", "-DateTimeOriginal="+naiveTimeStr, "-overwrite_original", rawPath)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("exiftool set DateTime failed: %s, %v", out, err)
+	}
+
+	// Generate script
+	scriptPath := filepath.Join(t.TempDir(), "script.sh")
+	writer, err := NewFileScriptWriter(scriptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Close()
+
+	err = TagImages(context.Background(), rawDir, dbPath, false, nil, matcher.ProviderOptions{
+		SearchWindow:       matcher.DefaultSearchWindow,
+		TimeThreshold:      matcher.DefaultTimeThreshold,
+		PriorityMultiplier: matcher.DefaultPriorityMultiplier,
+	}, writer)
+	if err != nil {
+		t.Fatalf("TagImages error: %v", err)
+	}
+
+	content, err := os.ReadFile(scriptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(content)
+
+	// Verify that raw.jpg is tagged
+	if !strings.Contains(script, "raw.jpg") {
+		t.Error("script missing raw.jpg")
+	}
+	if !strings.Contains(script, "-GPSLatitude=37.7749") {
+		t.Error("missing latitude in script")
+	}
+	// Verify footer indicates 1 tagged, 0 skipped
+	if !strings.Contains(script, "# Total: 1 files, Tagged: 1, Skipped: 0") {
+		t.Errorf("footer not as expected\nScript:\n%s", script)
+	}
+}
+
+// TestTagImages_ScriptGeneration_LargeDirectory tests that script generation can handle
+// a large number of files (over 10,000) efficiently and correctly, without excessive
+// memory usage or timeouts. It creates 1000 copies of a single valid template to
+// simulate many files (adjust N higher if needed for coverage of >10k in manual runs).
+func TestTagImages_ScriptGeneration_LargeDirectory(t *testing.T) {
+	if !exiftoolAvailable() {
+		t.Skip("exiftool binary not found")
+	}
+	// Setup: reference DB
+	imagesDir := t.TempDir()
+	dbPath := filepath.Join(t.TempDir(), "large.db")
+	imgTime := time.Date(2023, 10, 1, 12, 0, 0, 0, time.UTC)
+	createImageWithGPS(t, imagesDir, "ref.jpg", 37.7749, -122.4194, 10.0, imgTime, "TestCam")
+
+	err := BuildDB(context.Background(), BuildConfig{
+		OutputDB: dbPath,
+		Source:   "images",
+		InputDir: imagesDir,
+	})
+	if err != nil {
+		t.Fatalf("BuildDB failed: %v", err)
+	}
+
+	// Create raw template image with matching timestamp
+	rawTemplateDir := t.TempDir()
+	templatePath := filepath.Join(rawTemplateDir, "template.jpg")
+	createRawImage(t, rawTemplateDir, "template.jpg", imgTime)
+
+	// Create many copies in rawDir
+	rawDir := t.TempDir()
+	N := 1000
+	templateData, err := os.ReadFile(templatePath)
+	if err != nil {
+		t.Fatalf("failed to read template: %v", err)
+	}
+	for i := 0; i < N; i++ {
+		dest := filepath.Join(rawDir, fmt.Sprintf("img%04d.jpg", i))
+		if err := os.WriteFile(dest, templateData, 0644); err != nil {
+			t.Fatalf("failed to copy: %v", err)
+		}
+	}
+
+	// Generate script
+	scriptPath := filepath.Join(t.TempDir(), "large_script.sh")
+	writer, err := NewFileScriptWriter(scriptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Close()
+
+	start := time.Now()
+	err = TagImages(context.Background(), rawDir, dbPath, false, nil, matcher.ProviderOptions{
+		SearchWindow:       matcher.DefaultSearchWindow,
+		TimeThreshold:      matcher.DefaultTimeThreshold,
+		PriorityMultiplier: matcher.DefaultPriorityMultiplier,
+	}, writer)
+	if err != nil {
+		t.Fatalf("TagImages error: %v", err)
+	}
+	elapsed := time.Since(start)
+	t.Logf("Processed %d files in %v", N, elapsed)
+
+	content, err := os.ReadFile(scriptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(content)
+
+	// Count command lines (lines starting with "exiftool")
+	lines := strings.Split(script, "\n")
+	tagged := 0
+	for _, line := range lines {
+		if strings.HasPrefix(line, "exiftool") && strings.Contains(line, ".jpg") {
+			tagged++
+		}
+	}
+	if tagged != N {
+		t.Errorf("expected %d tagged commands, got %d", N, tagged)
+	}
+
+	// Check footer for correct totals
+	expectedFooter := fmt.Sprintf("# Total: %d files, Tagged: %d, Skipped: %d", N, N, 0)
+	if !strings.Contains(script, expectedFooter) {
+		t.Errorf("footer not found. Expected substring: %s\nScript:\n%s", expectedFooter, script)
 	}
 }
