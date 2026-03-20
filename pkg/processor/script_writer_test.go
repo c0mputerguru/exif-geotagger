@@ -5,6 +5,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/abpatel/exif-geotagger/pkg/exiftool"
 )
 
 func TestEscapeShellArg(t *testing.T) {
@@ -411,6 +413,168 @@ func TestScriptWriter_ErrorHandling(t *testing.T) {
 	if err == nil {
 		t.Error("Expected error for invalid path, got nil")
 	}
+}
+
+func TestFileScriptWriter_WriteTagCommand(t *testing.T) {
+	tmpfile, err := os.CreateTemp("", "tagcmd-test-*.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpfile.Name())
+	tmpfile.Close()
+
+	writer, err := NewFileScriptWriter(tmpfile.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create some metadata
+	meta := exiftool.Metadata{
+		GPSLatitude:  ptrFloat64(37.7749),
+		GPSLongitude: ptrFloat64(-122.4194),
+		City:         ptrString("San Francisco"),
+	}
+
+	// Write tag command
+	err = writer.WriteTagCommand("image.jpg", meta)
+	if err != nil {
+		t.Fatalf("WriteTagCommand failed: %v", err)
+	}
+
+	err = writer.Close()
+	if err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	// Read file
+	content, err := os.ReadFile(tmpfile.Name())
+	if err != nil {
+		t.Fatalf("ReadFile failed: %v", err)
+	}
+
+	// Should contain an exiftool command with proper escaping
+	// BuildExiftoolArgs adds latRef and lonRef based on sign
+	expected := "exiftool -GPSLatitude=37.774900 -GPSLongitude=-122.419400 -GPSLatitudeRef=N -GPSLongitudeRef=W '-City=San Francisco' -overwrite_original image.jpg\n"
+	if string(content) != expected {
+		t.Errorf("WriteTagCommand output:\ngot:\n%q\nwant:\n%q", string(content), expected)
+	}
+}
+
+func TestFileScriptWriter_WriteSkipComment(t *testing.T) {
+	tmpfile, err := os.CreateTemp("", "skipcmd-test-*.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpfile.Name())
+	tmpfile.Close()
+
+	writer, err := NewFileScriptWriter(tmpfile.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Write skip comment
+	err = writer.WriteSkipComment("image.jpg", "already has GPS data")
+	if err != nil {
+		t.Fatalf("WriteSkipComment failed: %v", err)
+	}
+
+	err = writer.Close()
+	if err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	// Read file
+	content, err := os.ReadFile(tmpfile.Name())
+	if err != nil {
+		t.Fatalf("ReadFile failed: %v", err)
+	}
+
+	expected := "# SKIP image.jpg - already has GPS data\n"
+	if string(content) != expected {
+		t.Errorf("WriteSkipComment output:\ngot:\n%q\nwant:\n%q", string(content), expected)
+	}
+}
+
+func TestStdoutScriptWriter_WriteTagCommand(t *testing.T) {
+	// Capture stdout
+	oldStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+
+	writer := NewStdoutScriptWriter()
+
+	meta := exiftool.Metadata{
+		GPSLatitude:  ptrFloat64(37.7749),
+		GPSLongitude: ptrFloat64(-122.4194),
+	}
+
+	err = writer.WriteTagCommand("my photo.jpg", meta)
+	if err != nil {
+		t.Fatalf("WriteTagCommand failed: %v", err)
+	}
+
+	err = writer.Close()
+	if err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+	output := buf.String()
+
+	expected := "exiftool -GPSLatitude=37.774900 -GPSLongitude=-122.419400 -GPSLatitudeRef=N -GPSLongitudeRef=W -overwrite_original 'my photo.jpg'\n"
+	if output != expected {
+		t.Errorf("Stdout WriteTagCommand output:\ngot:\n%q\nwant:\n%q", output, expected)
+	}
+}
+
+func TestStdoutScriptWriter_WriteSkipComment(t *testing.T) {
+	oldStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+
+	writer := NewStdoutScriptWriter()
+
+	err = writer.WriteSkipComment("file with spaces.jpg", "no valid timestamp")
+	if err != nil {
+		t.Fatalf("WriteSkipComment failed: %v", err)
+	}
+
+	err = writer.Close()
+	if err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+	output := buf.String()
+
+	expected := "# SKIP file with spaces.jpg - no valid timestamp\n"
+	if output != expected {
+		t.Errorf("Stdout WriteSkipComment output:\ngot:\n%q\nwant:\n%q", output, expected)
+	}
+}
+
+// Helper functions to create pointers
+func ptrFloat64(v float64) *float64 {
+	return &v
+}
+
+func ptrString(s string) *string {
+	return &s
 }
 
 // Test that the escaping produces a shell command that is safe to execute

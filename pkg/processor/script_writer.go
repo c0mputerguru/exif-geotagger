@@ -3,6 +3,8 @@ package processor
 import (
 	"os"
 	"strings"
+
+	"github.com/abpatel/exif-geotagger/pkg/exiftool"
 )
 
 // ScriptWriter provides an interface for writing shell scripts.
@@ -11,6 +13,15 @@ type ScriptWriter interface {
 	// WriteCommand writes a command and its arguments as a single shell-safe line.
 	// Arguments are escaped to prevent shell injection and ensure correct parsing.
 	WriteCommand(command string, args ...string) error
+
+	// WriteTagCommand writes an exiftool command to tag an image with metadata.
+	// It builds the appropriate exiftool arguments from the metadata and writes
+	// a shell command that would tag the given file.
+	WriteTagCommand(filePath string, meta exiftool.Metadata) error
+
+	// WriteSkipComment writes a comment explaining why a file was skipped.
+	// This produces a commented line in the script (not executable).
+	WriteSkipComment(filePath string, reason string) error
 
 	// Close closes the underlying writer and releases any resources.
 	Close() error
@@ -49,6 +60,26 @@ func (w *FileScriptWriter) Close() error {
 	return nil
 }
 
+// WriteTagCommand writes an exiftool command to tag an image with metadata.
+// It builds the appropriate exiftool arguments and writes a shell-safe command line.
+func (w *FileScriptWriter) WriteTagCommand(filePath string, meta exiftool.Metadata) error {
+	args := exiftool.BuildExiftoolArgs(filePath, meta)
+	if len(args) == 0 {
+		// Nothing to write, but we can write a comment indicating no tags needed
+		_, err := w.file.WriteString("# No metadata to write for " + filePath + "\n")
+		return err
+	}
+	return w.WriteCommand("exiftool", args...)
+}
+
+// WriteSkipComment writes a comment explaining why a file was skipped.
+// The line is commented out (shell comment) and includes the file path and reason.
+func (w *FileScriptWriter) WriteSkipComment(filePath string, reason string) error {
+	comment := "# SKIP " + filePath + " - " + reason
+	_, err := w.file.WriteString(comment + "\n")
+	return err
+}
+
 // StdoutScriptWriter writes shell scripts to standard output.
 type StdoutScriptWriter struct {
 	writer *os.File
@@ -70,6 +101,26 @@ func (w *StdoutScriptWriter) WriteCommand(command string, args ...string) error 
 // Close is a no-op for StdoutScriptWriter since it doesn't own os.Stdout.
 func (w *StdoutScriptWriter) Close() error {
 	return nil
+}
+
+// WriteTagCommand writes an exiftool command to tag an image with metadata.
+// It builds the appropriate exiftool arguments and writes a shell-safe command line.
+func (w *StdoutScriptWriter) WriteTagCommand(filePath string, meta exiftool.Metadata) error {
+	args := exiftool.BuildExiftoolArgs(filePath, meta)
+	if len(args) == 0 {
+		// Nothing to write, but we can write a comment indicating no tags needed
+		_, err := w.writer.WriteString("# No metadata to write for " + filePath + "\n")
+		return err
+	}
+	return w.WriteCommand("exiftool", args...)
+}
+
+// WriteSkipComment writes a comment explaining why a file was skipped.
+// The line is commented out (shell comment) and includes the file path and reason.
+func (w *StdoutScriptWriter) WriteSkipComment(filePath string, reason string) error {
+	comment := "# SKIP " + filePath + " - " + reason
+	_, err := w.writer.WriteString(comment + "\n")
+	return err
 }
 
 // shellEscape escapes a command and its arguments for safe use in a POSIX shell.

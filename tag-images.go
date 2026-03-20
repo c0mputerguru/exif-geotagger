@@ -91,7 +91,7 @@ func runTagImages() {
 		PriorityMultiplier: cfg.PriorityMultiplier,
 	}
 
-	if err := processor.TagImages(context.Background(), cfg.RawDir, cfg.DBPath, cfg.DryRun, cfg.PriorityDevices, opts); err != nil {
+	if err := processor.TagImages(context.Background(), cfg.RawDir, cfg.DBPath, cfg.DryRun, cfg.PriorityDevices, opts, nil); err != nil {
 		logger.Error("Error tagging images: %v", err)
 		os.Exit(1)
 	}

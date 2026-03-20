@@ -326,7 +326,9 @@ func buildDBFromHA(ctx context.Context, cfg BuildConfig) error {
 }
 
 // TagImages tags raw images with GPS data from the database.
-func TagImages(ctx context.Context, rawDir string, dbPath string, dryRun bool, priorityDevices []string, opts matcher.ProviderOptions) error {
+// If writer is non-nil, instead of writing metadata directly, it writes shell commands
+// to the writer (for script generation). DryRun is ignored when writer is provided.
+func TagImages(ctx context.Context, rawDir string, dbPath string, dryRun bool, priorityDevices []string, opts matcher.ProviderOptions, writer ScriptWriter) error {
 	repo, err := database.Connect(dbPath)
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
@@ -337,6 +339,15 @@ func TagImages(ctx context.Context, rawDir string, dbPath string, dryRun bool, p
 
 	count := 0
 	skipped := 0
+
+	// Close writer if provided
+	if writer != nil {
+		defer func() {
+			if closeErr := writer.Close(); closeErr != nil {
+				logger.Error("Failed to close script writer: %v", closeErr)
+			}
+		}()
+	}
 
 	err = filepath.WalkDir(rawDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -354,6 +365,11 @@ func TagImages(ctx context.Context, rawDir string, dbPath string, dryRun bool, p
 		meta, err := exiftool.ReadMetadata(path)
 		if err != nil {
 			logger.Error("Failed to read metadata for %s: %v", path, err)
+			if writer != nil {
+				if skipErr := writer.WriteSkipComment(path, "failed to read metadata: "+err.Error()); skipErr != nil {
+					logger.Error("Failed to write skip comment for %s: %v", path, skipErr)
+				}
+			}
 			skipped++
 			return nil
 		}
@@ -361,6 +377,11 @@ func TagImages(ctx context.Context, rawDir string, dbPath string, dryRun bool, p
 		// Skip if it already has GPS tags
 		if meta.GPSLatitude != nil && meta.GPSLongitude != nil {
 			fmt.Printf("Skipping %s (already has GPS data)\n", path)
+			if writer != nil {
+				if skipErr := writer.WriteSkipComment(path, "already has GPS data"); skipErr != nil {
+					logger.Error("Failed to write skip comment for %s: %v", path, skipErr)
+				}
+			}
 			skipped++
 			return nil
 		}
@@ -368,6 +389,11 @@ func TagImages(ctx context.Context, rawDir string, dbPath string, dryRun bool, p
 		ts, err := meta.GetTimestamp()
 		if err != nil {
 			logger.Warn("Warning: No valid timestamp for %s", path)
+			if writer != nil {
+				if skipErr := writer.WriteSkipComment(path, "no valid timestamp"); skipErr != nil {
+					logger.Error("Failed to write skip comment for %s: %v", path, skipErr)
+				}
+			}
 			skipped++
 			return nil
 		}
@@ -375,6 +401,11 @@ func TagImages(ctx context.Context, rawDir string, dbPath string, dryRun bool, p
 		match, err := provider.FindBestMatch(ctx, ts, priorityDevices)
 		if err != nil {
 			logger.Warn("No match found for %s (time: %s): %v", path, ts, err)
+			if writer != nil {
+				if skipErr := writer.WriteSkipComment(path, "no match found: "+err.Error()); skipErr != nil {
+					logger.Error("Failed to write skip comment for %s: %v", path, skipErr)
+				}
+			}
 			skipped++
 			return nil
 		}
@@ -382,14 +413,22 @@ func TagImages(ctx context.Context, rawDir string, dbPath string, dryRun bool, p
 		// Use helper to copy match data and avoid data race (loop variable reuse)
 		newMeta := copyLocationEntry(match)
 
-		if err := exiftool.WriteMetadata(path, newMeta, dryRun); err != nil {
-			logger.Error("Failed to write metadata to %s: %v", path, err)
-		} else {
-			if !dryRun {
-				fmt.Printf("Successfully tagged %s with location from %s (time diff: %v)\n", path, match.DeviceModel, match.Timestamp.Sub(ts))
+		if writer != nil {
+			// Script generation mode: write command to script
+			if err := writer.WriteTagCommand(path, newMeta); err != nil {
+				logger.Error("Failed to write tag command for %s: %v", path, err)
 			}
-			count++
+		} else {
+			// Normal mode: actually write metadata
+			if err := exiftool.WriteMetadata(path, newMeta, dryRun); err != nil {
+				logger.Error("Failed to write metadata to %s: %v", path, err)
+			} else {
+				if !dryRun {
+					fmt.Printf("Successfully tagged %s with location from %s (time diff: %v)\n", path, match.DeviceModel, match.Timestamp.Sub(ts))
+				}
+			}
 		}
+		count++
 
 		return nil
 	})

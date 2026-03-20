@@ -220,7 +220,7 @@ func TestEndToEnd_HAtoTagImages(t *testing.T) {
 		SearchWindow:       matcher.DefaultSearchWindow,
 		TimeThreshold:      matcher.DefaultTimeThreshold,
 		PriorityMultiplier: matcher.DefaultPriorityMultiplier,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("TagImages error: %v", err)
 	}
