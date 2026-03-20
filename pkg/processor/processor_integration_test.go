@@ -1326,3 +1326,54 @@ func TestTagImages_ScriptGeneration_LargeDirectory(t *testing.T) {
 		t.Errorf("footer not found. Expected substring: %s\nScript:\n%s", expectedFooter, script)
 	}
 }
+
+// TestTagImages_ScriptGeneration_Executable tests that the generated script is valid
+// bash syntax and passes a dry-run check with 'bash -n'.
+func TestTagImages_ScriptGeneration_Executable(t *testing.T) {
+	if !exiftoolAvailable() {
+		t.Skip("exiftool binary not found")
+	}
+	// Setup: create a DB with a single location entry.
+	imagesDir := t.TempDir()
+	dbPath := filepath.Join(t.TempDir(), "exec.db")
+	imgTime := time.Date(2023, 10, 1, 12, 0, 0, 0, time.UTC)
+	createImageWithGPS(t, imagesDir, "ref.jpg", 37.7749, -122.4194, 10.0, imgTime, "TestCam")
+	err := BuildDB(context.Background(), BuildConfig{
+		OutputDB: dbPath,
+		Source:   "images",
+		InputDir: imagesDir,
+	})
+	if err != nil {
+		t.Fatalf("BuildDB failed: %v", err)
+	}
+
+	// Prepare raw images directory
+	rawDir := t.TempDir()
+	rawTime := imgTime.Add(30 * time.Minute)
+	createRawImage(t, rawDir, "tagme.jpg", rawTime)
+
+	// Generate script
+	scriptPath := filepath.Join(t.TempDir(), "script.sh")
+	writer, err := NewFileScriptWriter(scriptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// TagImages and close writer
+	err = TagImages(context.Background(), rawDir, dbPath, false, nil, matcher.ProviderOptions{
+		SearchWindow:       matcher.DefaultSearchWindow,
+		TimeThreshold:      matcher.DefaultTimeThreshold,
+		PriorityMultiplier: matcher.DefaultPriorityMultiplier,
+	}, writer)
+	if err != nil {
+		t.Fatalf("TagImages error: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("writer close: %v", err)
+	}
+
+	// Verify script syntax using bash -n (dry-run)
+	cmd := exec.Command("bash", "-n", scriptPath)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("script syntax check failed: %v\nOutput: %s", err, out)
+	}
+}
