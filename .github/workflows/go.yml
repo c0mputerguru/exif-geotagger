@@ -26,5 +26,10 @@ jobs:
     - name: Build
       run: go build -v ./...
 
+    - name: Install exiftool
+      run: |
+        sudo apt-get update
+        sudo apt-get install exiftool
+  
     - name: Test
       run: go test -v ./...
